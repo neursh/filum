@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+rand = "0.8.5"
 tokio = { version = "1.42.0", features = ["full"] }
 windows = { version = "0.58.0", features = ["Win32", "Win32_Networking", "Win32_Networking_WinSock"] }

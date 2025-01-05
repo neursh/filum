@@ -50,13 +50,13 @@ impl BridgeInstance {
             ).await
             .unwrap();
 
-        self.assigned_socket
-            .local_addr()
-            .unwrap()
-            .ip();
+        // self.assigned_socket
+        //     .local_addr()
+        //     .unwrap()
+        //     .ip();
 
-        let message: Vec<u8> = vec![1];
-        message.extend(self.assigned_socket.local_addr().unwrap().ip().octets());
-        node.write(&message);
+        // let message: Vec<u8> = vec![1];
+        // message.extend(self.assigned_socket.local_addr().unwrap().ip().octets());
+        // node.write(&message);
     }
 }
