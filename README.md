@@ -40,3 +40,5 @@ The `port` argument is the port that filum will use on client to make an entry p
 ## Example
 
 I've made a Colab notebook to create a filum server. Download the official filum binary, and you can try it for yourself!
+
+https://colab.research.google.com/drive/1Wf4nEgXwUFckM1qkvUYPyESHvqwiRY2P?usp=sharing
