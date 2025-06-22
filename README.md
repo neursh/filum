@@ -1,49 +1,42 @@
 # Filum
 
-Binds locally hosted Minecraft server to peer-to-peer
+Binds locally hosted TCP/UDP server to peer-to-peer.
 
-This project is mainly developing for Windows platform. Once the first beta is released, I'll start working on a Linux port.
+## What is this?
 
-## Network instruction
+Basically, Filum allows you to "open a port" on demand using P2P, that people can connect to using this same program.
 
-Step by step instruction for creating this.
+Written in Rust, running Iroh under the hood. This is a thin program on top to redirect packets between server/client over P2P if possible. Iroh will use its public relay server if a P2P connection cannot be made.
 
-### 1. Bridge -> Postman:
+This program is best suited for testing or hosting a game server without the hassle of port forwarding and dynamic public IP stuff.
 
-- Bridge connects to postman with 2 pieces of information:
-  - First u8 is role, must be 1.
-  - An ASCII string of 24 character as id.
-  - Private IP/ private port: `[u8, u8, u8, u8, u16]` (buffer: 6)
-  - NOTE: Buffer size is 31.
-  * If id already exists, just close the bridge.
+## Usage
 
-### 2. Client -> Postman:
+On both sides, one single command is enough to get things started.
 
-- Client connects to postman with 2 pieces of information:
-  - First bit is role, must be 0.
-  - An ASCII string of 24 character as id. (8 \* 24 => 192)
-  - Private IP/ private port: `[u8, u8, u8, u8, u16]` (buffer: 48)
-  - NOTE: Buffer size is 241.
-  * If id is not found, just close the client.
+### For server:
 
-### 3. Postman -> Bridge:
+```
+filum host tcp 127.0.0.1:<port>
+```
 
-- Once the client has connected, postman will send the client's IP and port:
-  - `[u8, u8, u8, u8, u16, u8, u8, u8, u8, u16]` (buffer: 96)
-  - First `[u8, u8, u8, u8, u16]` is the public IP / public port (NAT provided).
-  - Next `[u8, u8, u8, u8, u16]` is the private IP / private port.
+This command will then display an ID that you will share it to client, you can send it via mails, pigeons, or anything you prefer.
 
-### 4. Postman -> Client:
+```
+> Service started, you can now share this ID to client to let them connect to 127.0.0.1:<port>.
+ID: <141 characters, odd choice>
+```
 
-- When the postman receives that information, it will send back to the client, similiar packet:
-  - `[u8, u8, u8, u8, u16, u8, u8, u8, u8, u16]` (buffer: 96)
-  - First `[u8, u8, u8, u8, u16]` is the public IP / public port (NAT provided).
-  - Next `[u8, u8, u8, u8, u16]` is the private IP / private port.
+### For client:
 
-### 5. Client/Bridge -X-> Postman:
+After getting the ID, put it in filum to bridge the gap between two networks:
 
-- Postman's job finished here, client and bridge disconnect from the postman, or postman just close them.
+```
+filum client tcp <141 characters, odd choice> <port>
+```
 
-## Papers & references
+The `port` argument is the port that filum will use on client to make an entry point, the client will use this port to connect to the destination server, so it's merely a mimic port that spit every thing back to the server.
 
-[Peer-to-Peer Communication Across Network Address Translators (Apr 10 2005, by Bryan Ford)](https://bford.info/pub/net/p2pnat/)
+## Example
+
+I've made a Colab notebook to create a filum server. Download the official filum binary, and you can try it for yourself!

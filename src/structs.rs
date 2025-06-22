@@ -1,2 +1,5 @@
-pub mod minecraft_server_info;
-pub mod postman_server_info;
+#[derive(Clone)]
+pub enum Protocol {
+    Tcp,
+    Udp,
+}

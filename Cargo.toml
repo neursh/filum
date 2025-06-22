@@ -4,6 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rand = "0.8.5"
-tokio = { version = "1.42.0", features = ["full"] }
-windows = { version = "0.58.0", features = ["Win32", "Win32_Networking", "Win32_Networking_WinSock"] }
+serde = { version = "1.0.219", features = ["derive"] }
+tokio = { version = "1.45.0", features = ["full"] }
+inquire = "0.7.5"
+colored = "3.0.0"
+indicatif = "0.17.11"
+blake3 = "1.8.2"
+iroh = "0.35.0"
+iroh-base = "0.35.0"
+anyhow = "1.0.98"
+nanoid = "0.4.0"
+clap = { version = "4.5.40", features = ["derive"] }
+base64 = "0.22.1"
+
+[profile.dev]
+opt-level = 0
+debug = true

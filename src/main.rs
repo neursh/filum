@@ -1,52 +1,82 @@
-mod bridge;
+mod host;
+mod structs;
 mod client;
-pub mod structs;
-pub mod utils;
 
-use std::net::{ IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs };
+use clap::{ Parser, Subcommand };
 
-use bridge::instance::BridgeInstance;
-use structs::{ minecraft_server_info::MinecraftServerInfo, postman_server_info::PostmanServerInfo };
-use tokio::{ io::{ AsyncReadExt, AsyncWriteExt }, net::TcpSocket };
-use rand::RngCore;
+use crate::structs::Protocol;
+
+/// Filum | Localhost over P2P | https://github.com/neursh/filum
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Proxy a P2P service on your local network port.
+    Host {
+        #[command(subcommand)]
+        protocol: HostProtocolOptions,
+    },
+
+    /// Connect to a P2P service.
+    Client {
+        #[command(subcommand)]
+        protocol: ClientProtocolOptions,
+    },
+}
+
+#[derive(Subcommand)]
+enum HostProtocolOptions {
+    Tcp {
+        /// IP and port. Ex: "0.0.0.0:7141"
+        source: String,
+    },
+    Udp {
+        /// IP and port. Ex: "0.0.0.0:7141"
+        source: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ClientProtocolOptions {
+    Tcp {
+        /// A provided node ID from host.
+        node: String,
+
+        /// Destination port to use on client, leave empty to let the program to select a random one.
+        #[arg(default_value("0"))]
+        port: u16,
+    },
+    Udp {
+        /// A provided node ID from host.
+        node: String,
+
+        /// Destination port to use on client, leave empty to let the program to select a random one.
+        #[arg(default_value("0"))]
+        port: u16,
+    },
+}
 
 #[tokio::main]
 async fn main() {
-    let mc_server = MinecraftServerInfo {
-        host: [127, 0, 0, 1],
-        port: 25565,
-    };
-    let postman_info = PostmanServerInfo {
-        host: [127, 0, 0, 1],
-        port: 63841,
-    };
+    let args = Args::parse();
 
-    let socket = TcpSocket::new_v4().unwrap();
-    socket.set_reuseaddr(true).unwrap();
-    socket.bind("0.0.0.0:26241".parse().unwrap()).unwrap();
-
-    let mut client = socket
-        .connect(
-            "stunserver2024.stunprotocol.org:3478".to_socket_addrs().unwrap().next().unwrap()
-        ).await
-        .unwrap();
-
-    let request_header = [0u8, 1, 0, 0];
-    let cookie = [33u8, 18, 164, 66];
-    let mut transaction_id = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut transaction_id);
-
-    let mut message = [0u8; 20];
-    message[0..4].copy_from_slice(&request_header);
-    message[4..8].copy_from_slice(&cookie);
-    message[8..20].copy_from_slice(&transaction_id);
-
-    client.write(&message).await.unwrap();
-
-    let mut buf: [u8; 100] = [0; 100];
-    let length = client.read(&mut buf).await.unwrap();
-
-    println!("{}", length);
-
-    println!("{:?}", buf);
+    match args.command {
+        Commands::Host { protocol: HostProtocolOptions::Tcp { source } } => {
+            host::create::create_host(&source, Protocol::Tcp).await
+        }
+        Commands::Host { protocol: HostProtocolOptions::Udp { source } } => {
+            host::create::create_host(&source, Protocol::Udp).await
+        }
+        Commands::Client { protocol: ClientProtocolOptions::Tcp { node, port } } => {
+            client::connect::establish(&node, port, Protocol::Tcp).await;
+        }
+        Commands::Client { protocol: ClientProtocolOptions::Udp { node, port } } => {
+            client::connect::establish(&node, port, Protocol::Udp).await;
+        }
+    }
 }
