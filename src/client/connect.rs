@@ -55,11 +55,11 @@ pub async fn establish(node: &String, port: u16, protocol: Protocol) {
     loop {
         let socket = match proxy_listener.accept().await {
             Ok((socket, addr)) => {
-                println!("{} {:?}", "[proxy]> New connection:".green(), addr);
+                println!("{} {:?}", "New connection:".green(), addr);
                 (socket, addr)
             }
             Err(message) => {
-                println!("{} {:?}", "[proxy]> Connection error:".green(), message);
+                println!("{} {:?}", "Connection error:".green(), message);
                 continue;
             }
         };
@@ -194,7 +194,7 @@ async fn connect_node(
     alpn: Arc<Vec<u8>>
 ) -> Result<(Endpoint, Connection, (SendStream, RecvStream)), ()> {
     let endpoint = Endpoint::builder().discovery_n0().bind().await.unwrap();
-    let addr_log = format!("{} ::", addr).bright_cyan().bold();
+    let addr_log = format!("{} ::", addr);
 
     if nodeid.len() != 32 {
         println!(
