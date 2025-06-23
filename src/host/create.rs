@@ -52,10 +52,12 @@ async fn internal_handler(
 }
 
 async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol: Protocol) {
+    let addr_log = format!("{} :: ", incoming.remote_address());
+
     let connection = match incoming.await {
         Ok(connection) => connection,
         Err(message) => {
-            println!("{} {}", ">".red(), message);
+            println!("{}{}", addr_log.bold().red(), message);
             return;
         }
     };
@@ -63,10 +65,12 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
     let client_stream = match connection.accept_bi().await {
         Ok(client_stream) => client_stream,
         Err(message) => {
-            println!("{} {}", ">".red(), message);
+            println!("{}{}", addr_log.bold().red(), message);
             return;
         }
     };
+
+    println!("{}{}", addr_log.bold().green(), "Client connected.");
 
     match protocol {
         Protocol::Tcp => {
@@ -77,16 +81,18 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
 
             if proxied_server.bind(addr).is_err() {
                 println!(
-                    "{} {}",
-                    ">".red(),
-                    "Can't find a suitable port or IP to create a proxy layer.".red().bold()
+                    "{}{}",
+                    addr_log.bold().red(),
+                    "Can't find a suitable port or IP to create a proxy layer over to client."
+                        .red()
+                        .bold()
                 );
             }
 
             let proxied_stream = match proxied_server.connect(source_socket).await {
                 Ok(proxied_stream) => proxied_stream,
                 Err(message) => {
-                    println!("{} {}", ">".red(), message);
+                    println!("{}{}", addr_log.bold().red(), message);
                     return;
                 }
             };
@@ -94,8 +100,8 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
             let (reader, writer) = tokio::io::split(proxied_stream);
 
             tokio::join!(
-                tcp::server_cast(reader, client_stream.0),
-                tcp::client_cast(writer, client_stream.1)
+                tcp::server_cast(reader, client_stream.0, addr_log.clone()),
+                tcp::client_cast(writer, client_stream.1, addr_log.clone())
             );
         }
         Protocol::Udp => {
@@ -108,7 +114,7 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
                     match socket.connect(source_socket).await {
                         Ok(proxy_stream) => proxy_stream,
                         Err(message) => {
-                            println!("{} {}", ">".red(), message);
+                            println!("{}{}", addr_log.bold().red(), message);
                             return;
                         }
                     }
@@ -116,17 +122,19 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
                 }
                 Err(_) => {
                     println!(
-                        "{} {}",
-                        ">".red(),
-                        "Can't find a suitable port or IP to create a proxy layer.".red().bold()
+                        "{}{}",
+                        addr_log.bold().red(),
+                        "Can't find a suitable port or IP to create a proxy layer over to client."
+                            .red()
+                            .bold()
                     );
                     return;
                 }
             };
 
             tokio::join!(
-                udp::server_cast(proxied_server.clone(), client_stream.0),
-                udp::client_cast(proxied_server.clone(), client_stream.1)
+                udp::server_cast(proxied_server.clone(), client_stream.0, addr_log.clone()),
+                udp::client_cast(proxied_server.clone(), client_stream.1, addr_log.clone())
             );
         }
     }

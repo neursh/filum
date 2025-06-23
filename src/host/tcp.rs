@@ -3,7 +3,11 @@ use iroh::endpoint::{ RecvStream, SendStream, VarInt };
 use tokio::{ io::{ AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf }, net::TcpStream };
 
 // Cast server packets over proxy to client.
-pub async fn server_cast(mut reader: ReadHalf<TcpStream>, mut client_writer: SendStream) {
+pub async fn server_cast(
+    mut reader: ReadHalf<TcpStream>,
+    mut client_writer: SendStream,
+    addr_log: String
+) {
     let mut buffer = [0_u8; 4096];
 
     loop {
@@ -12,19 +16,15 @@ pub async fn server_cast(mut reader: ReadHalf<TcpStream>, mut client_writer: Sen
                 if length != 0 {
                     length
                 } else {
-                    println!(
-                        "{} {}",
-                        ">".red(),
-                        "Server returned a 0 message in size, aborting..."
-                    );
+                    println!("{}{}", addr_log.bold().yellow(), "Server disconnected.");
                     break;
                 }
             }
             Err(message) => {
                 println!(
-                    "{} {}\n{}",
-                    ">".red(),
-                    "Something when wrong. Can't bridge between server and proxy, error logs:",
+                    "{}{}\n{}",
+                    addr_log.bold().red(),
+                    "Something when wrong. Can't bridge between server and proxy, error log:",
                     message
                 );
                 break;
@@ -33,9 +33,9 @@ pub async fn server_cast(mut reader: ReadHalf<TcpStream>, mut client_writer: Sen
 
         if let Err(message) = client_writer.write_all(&buffer[..length]).await {
             println!(
-                "{} {}\n{}",
-                ">".red(),
-                "Can't stream the packet back to client proxy, error logs:",
+                "{}{}\n{}",
+                addr_log.bold().red(),
+                "Can't stream the packet back to client proxy, error log:",
                 message
             );
             break;
@@ -46,7 +46,11 @@ pub async fn server_cast(mut reader: ReadHalf<TcpStream>, mut client_writer: Sen
 }
 
 // Cast client packets over proxy to server.
-pub async fn client_cast(mut writer: WriteHalf<TcpStream>, mut client_reader: RecvStream) {
+pub async fn client_cast(
+    mut writer: WriteHalf<TcpStream>,
+    mut client_reader: RecvStream,
+    addr_log: String
+) {
     let mut buffer = [0_u8; 4096];
 
     loop {
@@ -57,22 +61,22 @@ pub async fn client_cast(mut writer: WriteHalf<TcpStream>, mut client_reader: Re
                         length
                     } else {
                         println!(
-                            "{} {}",
-                            ">".red(),
+                            "{}{}",
+                            addr_log.bold().red(),
                             "Stream returned a 0 message in size, aborting..."
                         );
                         let _ = client_reader.stop(VarInt::from_u32(0));
                         break;
                     }
                 } else {
-                    println!("{} {}", ">".yellow(), "Stream finished.");
+                    println!("{}{}", addr_log.bold().yellow(), "Stream finished.");
                     break;
                 }
             }
             Err(message) => {
                 println!(
-                    "{} {}\n{}",
-                    ">".red(),
+                    "{}{}\n{}",
+                    addr_log.bold().red(),
                     "Something when wrong. The client node might be disconnected, error logs:",
                     message
                 );
@@ -82,8 +86,8 @@ pub async fn client_cast(mut writer: WriteHalf<TcpStream>, mut client_reader: Re
 
         if let Err(message) = writer.write_all(&buffer[..length]).await {
             println!(
-                "{} {}\n{}",
-                ">".red(),
+                "{}{}\n{}",
+                addr_log.bold().red(),
                 "Can't stream the packets back to server, error logs:",
                 message
             );

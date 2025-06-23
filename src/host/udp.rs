@@ -5,7 +5,11 @@ use iroh::endpoint::{ RecvStream, SendStream, VarInt };
 use tokio::{ net::UdpSocket, sync::RwLock };
 
 // Cast server packets over proxy to client.
-pub async fn server_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_writer: SendStream) {
+pub async fn server_cast(
+    proxied_server: Arc<RwLock<UdpSocket>>,
+    mut client_writer: SendStream,
+    addr_log: String
+) {
     let mut buffer = [0_u8; 4096];
 
     let proxied_server_read = proxied_server.read().await;
@@ -15,18 +19,14 @@ pub async fn server_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_writ
                 if length != 0 {
                     length
                 } else {
-                    println!(
-                        "{} {}",
-                        ">".red(),
-                        "Server returned a 0 message in size, aborting..."
-                    );
+                    println!("{}{}", addr_log.bold().yellow(), "Server disconnected.");
                     break;
                 }
             }
             Err(message) => {
                 println!(
-                    "{} {}\n{}",
-                    ">".red(),
+                    "{}{}\n{}",
+                    addr_log.bold().red(),
                     "Something when wrong. Can't bridge between server and proxy, error logs:",
                     message
                 );
@@ -36,8 +36,8 @@ pub async fn server_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_writ
 
         if let Err(message) = client_writer.write_all(&buffer[..length]).await {
             println!(
-                "{} {}\n{}",
-                ">".red(),
+                "{}{}\n{}",
+                addr_log.bold().red(),
                 "Can't stream the packet back to client proxy, error logs:",
                 message
             );
@@ -49,7 +49,11 @@ pub async fn server_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_writ
 }
 
 // Cast client packets over proxy to server.
-pub async fn client_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_reader: RecvStream) {
+pub async fn client_cast(
+    proxied_server: Arc<RwLock<UdpSocket>>,
+    mut client_reader: RecvStream,
+    addr_log: String
+) {
     let mut buffer = [0_u8; 4096];
 
     let proxied_server_write = proxied_server.read().await;
@@ -60,23 +64,19 @@ pub async fn client_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_read
                     if length != 0 {
                         length
                     } else {
-                        println!(
-                            "{} {}",
-                            ">".red(),
-                            "Stream returned a 0 message in size, aborting..."
-                        );
+                        println!("{}{}", addr_log.bold().yellow(), "Client disconnected.");
                         let _ = client_reader.stop(VarInt::from_u32(0));
                         break;
                     }
                 } else {
-                    println!("{} {}", ">".yellow(), "Stream finished.");
+                    println!("{}{}", addr_log.bold().yellow(), "Stream finished.");
                     break;
                 }
             }
             Err(message) => {
                 println!(
-                    "{} {}\n{}",
-                    ">".red(),
+                    "{}{}\n{}",
+                    addr_log.bold().red(),
                     "Something when wrong. The client node might be disconnected, error logs:",
                     message
                 );
@@ -86,8 +86,8 @@ pub async fn client_cast(proxied_server: Arc<RwLock<UdpSocket>>, mut client_read
 
         if let Err(message) = proxied_server_write.send(&buffer[..length]).await {
             println!(
-                "{} {}\n{}",
-                ">".red(),
+                "{}{}\n{}",
+                addr_log.bold().red(),
                 "Can't stream the packets back to server, error logs:",
                 message
             );
