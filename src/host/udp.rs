@@ -56,12 +56,11 @@ async fn server_cast(
     loop {
         let length = match proxied_server_read.recv(&mut buffer).await {
             Ok(length) => {
-                if length != 0 {
-                    length
-                } else {
+                if length == 0 {
                     println!("{}{}", addr_log.bold().yellow(), "Server disconnected.");
                     break;
                 }
+                length
             }
             Err(message) => {
                 println!("{}{}", addr_log.bold().red(), message);
@@ -92,13 +91,11 @@ async fn client_cast(
         let length = match client_reader.read(&mut buffer).await {
             Ok(length) => {
                 if let Some(length) = length {
-                    if length != 0 {
-                        length
-                    } else {
+                    if length == 0 {
                         println!("{}{}", addr_log.bold().yellow(), "Client disconnected.");
-                        let _ = client_reader.stop(VarInt::from_u32(0));
                         break;
                     }
+                    length
                 } else {
                     println!("{}{}", addr_log.bold().yellow(), "Stream finished.");
                     break;

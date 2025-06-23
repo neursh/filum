@@ -59,12 +59,11 @@ async fn server_cast(
     loop {
         let length = match reader.read(&mut buffer).await {
             Ok(length) => {
-                if length != 0 {
-                    length
-                } else {
+                if length == 0 {
                     println!("{}{}", remote_addr_log.bold().yellow(), "Server disconnected.");
                     break;
                 }
+                length
             }
             Err(message) => {
                 println!("{}{}", remote_addr_log.bold().red(), message);
