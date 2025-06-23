@@ -1,11 +1,51 @@
-use std::sync::Arc;
+use std::{ net::SocketAddr, sync::Arc };
 
 use colored::Colorize;
 use iroh::endpoint::{ RecvStream, SendStream, VarInt };
 use tokio::{ net::UdpSocket, sync::RwLock };
 
-// Cast server packets over proxy to client.
-pub async fn server_cast(
+/// Connect client to server over a ghost socket.
+pub async fn connection_bridge(
+    source_socket: SocketAddr,
+    bridge_addr: SocketAddr,
+    remote_addr_log: String,
+    mut client_stream: (SendStream, RecvStream)
+) {
+    let proxied_server = match UdpSocket::bind(bridge_addr).await {
+        Ok(socket) => socket,
+        Err(_) => {
+            println!(
+                "{}{}",
+                remote_addr_log.bold().red(),
+                "Can't find a suitable port or IP to create a proxy layer over to client."
+            );
+            let _ = client_stream.1.stop(VarInt::from_u32(0));
+            let _ = client_stream.0.finish();
+            return;
+        }
+    };
+
+    match proxied_server.connect(source_socket).await {
+        Ok(proxy_stream) => proxy_stream,
+        Err(message) => {
+            println!("{}{}", remote_addr_log.bold().red(), message);
+            let _ = client_stream.1.stop(VarInt::from_u32(0));
+            let _ = client_stream.0.finish();
+            return;
+        }
+    }
+
+    // Wrap `proxied_server` inside Arc and RwLock to pass over 2 tasks.
+    let proxied_server = Arc::new(RwLock::new(proxied_server));
+
+    tokio::join!(
+        server_cast(proxied_server.clone(), client_stream.0, remote_addr_log.clone()),
+        client_cast(proxied_server.clone(), client_stream.1, remote_addr_log.clone())
+    );
+}
+
+/// Cast server packets over proxy to client.
+async fn server_cast(
     proxied_server: Arc<RwLock<UdpSocket>>,
     mut client_writer: SendStream,
     addr_log: String
@@ -24,32 +64,23 @@ pub async fn server_cast(
                 }
             }
             Err(message) => {
-                println!(
-                    "{}{}\n{}",
-                    addr_log.bold().red(),
-                    "Something when wrong. Can't bridge between server and proxy, error logs:",
-                    message
-                );
+                println!("{}{}", addr_log.bold().red(), message);
                 break;
             }
         };
 
         if let Err(message) = client_writer.write_all(&buffer[..length]).await {
-            println!(
-                "{}{}\n{}",
-                addr_log.bold().red(),
-                "Can't stream the packet back to client proxy, error logs:",
-                message
-            );
+            println!("{}{}", addr_log.bold().red(), message);
             break;
         }
     }
 
+    // Finally, clear everything.
     let _ = client_writer.finish();
 }
 
-// Cast client packets over proxy to server.
-pub async fn client_cast(
+/// Cast client packets over proxy to server.
+async fn client_cast(
     proxied_server: Arc<RwLock<UdpSocket>>,
     mut client_reader: RecvStream,
     addr_log: String
@@ -74,24 +105,17 @@ pub async fn client_cast(
                 }
             }
             Err(message) => {
-                println!(
-                    "{}{}\n{}",
-                    addr_log.bold().red(),
-                    "Something when wrong. The client node might be disconnected, error logs:",
-                    message
-                );
+                println!("{}{}", addr_log.bold().red(), message);
                 break;
             }
         };
 
         if let Err(message) = proxied_server_write.send(&buffer[..length]).await {
-            println!(
-                "{}{}\n{}",
-                addr_log.bold().red(),
-                "Can't stream the packets back to server, error logs:",
-                message
-            );
+            println!("{}{}", addr_log.bold().red(), message);
             break;
         }
     }
+
+    // Finally, clear everything.
+    let _ = client_reader.stop(VarInt::from_u32(0));
 }
