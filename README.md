@@ -10,10 +10,29 @@ Written in Rust, running Iroh under the hood. This is a thin program on top to r
 
 This program is best suited for testing or hosting a game server without the hassle of port forwarding and dynamic public IP stuff.
 
-| Client support: | Server support: |
+| Client support | Server support |
 |-|-|
 | ✅ TCP | ✅ TCP |
 | ❌ UDP | ✅ UDP |
+
+## Performance
+
+Your packets will go through 3 gates: `Local client ⇾ Filum ⇾ Local server`
+
+Because of the overhead, there will be some delay, I've tested a release build of Filum with a heavily modded Minecraft Fabric server on a local machine.
+
+Tested on i5-7500 3.40GHz:
+
+|| Native port | Filum port |
+|-|-|-|
+| **Latency impact:** |
+| First hit: | ~1ms | ~245ms |
+| Send packets: | ~0.5ms | ~1ms |
+| **CPU usage:** |
+| Client: | 0% | ~1.5% |
+| Server: | 0% | ~1% |
+
+On first connection, client will have to negotiate with server for a bidirectional connection, which is why it took much longer than connecting to the port directly, but once connected, it will have minimal to no latency.
 
 ## Usage
 
