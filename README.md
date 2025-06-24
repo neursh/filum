@@ -11,9 +11,9 @@ Written in Rust, running Iroh under the hood. This is a thin program on top to r
 This program is best suited for testing or hosting a game server without the hassle of port forwarding and dynamic public IP stuff.
 
 | Client support | Server support |
-|-|-|
-| ✅ TCP | ✅ TCP |
-| ❌ UDP (wip) | ✅ UDP |
+| -------------- | -------------- |
+| ✅ TCP         | ✅ TCP         |
+| ❌ UDP (wip)   | ✅ UDP         |
 
 ## Performance
 
@@ -23,14 +23,14 @@ Because of the overhead, there will be some delay, I've tested a release build o
 
 Tested on i5-7500 3.40GHz:
 
-|| Native port | Filum port |
-|-|-|-|
+|                     | Native port | Filum port |
+| ------------------- | ----------- | ---------- |
 | **Latency impact:** |
-| First hit: | ~1ms | ~245ms |
-| Send packets: | ~0.5ms | ~1ms |
-| **CPU usage:** |
-| Client: | 0% | ~1.5% |
-| Server: | 0% | ~1% |
+| First hit:          | ~1ms        | ~245ms     |
+| Send packets:       | ~0.5ms      | ~1ms       |
+| **CPU usage:**      |
+| Client:             | 0%          | ~1.5%      |
+| Server:             | 0%          | ~1%        |
 
 On first connection, client will have to negotiate with server for a bidirectional connection, which is why it took much longer than connecting to the port directly, but once connected, it will have minimal to no latency.
 
