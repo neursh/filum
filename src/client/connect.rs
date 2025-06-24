@@ -45,12 +45,7 @@ pub async fn establish(node: String, port: u16, protocol: Protocol) {
         }
     };
 
-    println!(
-        "{} {}\n{}",
-        ">".green(),
-        format!("Proxy server: {}", v4_addr).bright_cyan(),
-        "Checking host service...".green().bold()
-    );
+    println!("{} {}", ">".green(), format!("Proxy server: {}", v4_addr).bright_cyan());
 
     loop {
         let socket = match proxy_listener.accept().await {
@@ -228,13 +223,43 @@ async fn connect_node(
         "Attempting to request a bidirectional communication protocol...".yellow()
     );
 
-    let hosting_stream = match connection.open_bi().await {
-        Ok(hosting_stream) => hosting_stream,
+    // Request host to accept both ways communication.
+    // To check the connection, we'll do ping pong.
+    let (hosting_stream, send_latency, receive_latency) = match connection.open_bi().await {
+        Ok(mut hosting_stream) => {
+            // Send a single bit to the peer to confirm the request.
+            let send_latency = quanta::Instant::now();
+            if let Err(message) = hosting_stream.0.write(&[1]).await {
+                println!(
+                    "{} {}\n{}",
+                    addr_log,
+                    "The hosting node did not accept the request, error log:".red().bold(),
+                    message
+                );
+                return Err(());
+            }
+            let send_latency = send_latency.elapsed();
+
+            // Wait for the server peer to response.
+            let receive_latency = quanta::Instant::now();
+            if let Err(message) = hosting_stream.1.read(&mut [0]).await {
+                println!(
+                    "{} {}\n{}",
+                    addr_log,
+                    "The hosting node did not accept the request, error log:".red().bold(),
+                    message
+                );
+                return Err(());
+            }
+            let receive_latency = receive_latency.elapsed();
+
+            (hosting_stream, send_latency, receive_latency)
+        }
         Err(message) => {
             println!(
                 "{} {}\n{}",
                 addr_log,
-                "The hosting node did not accept the request, error logs:".red().bold(),
+                "The hosting node did not accept the request, error log:".red().bold(),
                 message
             );
             return Err(());
@@ -242,9 +267,14 @@ async fn connect_node(
     };
 
     println!(
-        "{} {}",
+        "{} {} | {}",
         addr_log,
-        "Connection made with a bidirectional communication protocol!".green().bold()
+        "Connection made with a bidirectional communication protocol!".green().bold(),
+        format!(
+            "(Send: {}ms Recv: {}ms)",
+            send_latency.as_millis(),
+            receive_latency.as_millis()
+        ).bright_cyan()
     );
 
     Ok((endpoint, connection, hosting_stream))

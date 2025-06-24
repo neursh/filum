@@ -57,8 +57,28 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
         "New client connected. Waiting for bidirectional negotiation..."
     );
 
-    let client_stream = match connection.accept_bi().await {
-        Ok(client_stream) => client_stream,
+    // Accept the client's request.
+    // To check the connection, we'll do ping pong.
+    let (client_stream, receive_latency, send_latency) = match connection.accept_bi().await {
+        Ok(mut client_stream) => {
+            // Wait for client to send back a single bit to confirm.
+            let receive_latency = quanta::Instant::now();
+            if let Err(message) = client_stream.1.read(&mut [1]).await {
+                println!("{}{}", remote_addr_log.bold().red(), message);
+                return;
+            }
+            let receive_latency = receive_latency.elapsed();
+
+            // Send a confirm bit back to client.
+            let send_latency = quanta::Instant::now();
+            if let Err(message) = client_stream.0.write(&[1]).await {
+                println!("{}{}", remote_addr_log.bold().red(), message);
+                return;
+            }
+            let send_latency = send_latency.elapsed();
+
+            (client_stream, receive_latency, send_latency)
+        }
         Err(message) => {
             println!("{}{}", remote_addr_log.bold().red(), message);
             return;
@@ -70,7 +90,16 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
         false => "[::1]:0".parse().unwrap(),
     };
 
-    println!("{}{}", remote_addr_log.bold().green(), "Client stream established.");
+    println!(
+        "{}{} | {}",
+        remote_addr_log.bold().green(),
+        "Client stream established.",
+        format!(
+            "(Send: {}ms Recv: {}ms)",
+            send_latency.as_millis(),
+            receive_latency.as_millis()
+        ).bright_cyan()
+    );
 
     match protocol {
         Protocol::Tcp =>

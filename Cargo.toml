@@ -16,6 +16,7 @@ anyhow = "1.0.98"
 nanoid = "0.4.0"
 clap = { version = "4.5.40", features = ["derive"] }
 base64 = "0.22.1"
+quanta = "0.12.6"
 
 [profile.dev]
 opt-level = 0
