@@ -10,7 +10,7 @@ use tokio::{
 
 use crate::structs::Protocol;
 
-pub async fn establish(node: &String, port: u16, protocol: Protocol) {
+pub async fn establish(node: String, port: u16, protocol: Protocol) {
     let translate: Vec<&str> = node.split(".").collect();
 
     if translate.len() != 2 {
@@ -48,7 +48,7 @@ pub async fn establish(node: &String, port: u16, protocol: Protocol) {
     println!(
         "{} {}\n{}",
         ">".green(),
-        format!("Proxy server: localhost:{}", port).bright_cyan(),
+        format!("Proxy server: {}", v4_addr).bright_cyan(),
         "Checking host service...".green().bold()
     );
 

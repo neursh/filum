@@ -66,17 +66,14 @@ async fn main() {
     let args = Args::parse();
 
     match args.command {
-        Commands::Host { protocol: HostProtocolOptions::Tcp { source } } => {
-            host::create::create_host(&source, Protocol::Tcp).await
-        }
-        Commands::Host { protocol: HostProtocolOptions::Udp { source } } => {
-            host::create::create_host(&source, Protocol::Udp).await
-        }
-        Commands::Client { protocol: ClientProtocolOptions::Tcp { node, port } } => {
-            client::connect::establish(&node, port, Protocol::Tcp).await;
-        }
-        Commands::Client { protocol: ClientProtocolOptions::Udp { node, port } } => {
-            client::connect::establish(&node, port, Protocol::Udp).await;
-        }
+        Commands::Host { protocol: HostProtocolOptions::Tcp { source } } =>
+            host::create::create_host(source, Protocol::Tcp).await,
+        Commands::Host { protocol: HostProtocolOptions::Udp { source } } =>
+            host::create::create_host(source, Protocol::Udp).await,
+
+        Commands::Client { protocol: ClientProtocolOptions::Tcp { node, port } } =>
+            client::connect::establish(node, port, Protocol::Tcp).await,
+        Commands::Client { protocol: ClientProtocolOptions::Udp { node, port } } =>
+            client::connect::establish(node, port, Protocol::Udp).await,
     }
 }

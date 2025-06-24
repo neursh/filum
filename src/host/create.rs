@@ -7,7 +7,7 @@ use nanoid::nanoid;
 
 use crate::{ host::{ tcp, udp }, structs::Protocol };
 
-pub async fn create_host(source: &str, protocol: Protocol) {
+pub async fn create_host(source: String, protocol: Protocol) {
     let alpn = nanoid!(32);
     let endpoint = Endpoint::builder()
         .discovery_n0()
@@ -20,7 +20,7 @@ pub async fn create_host(source: &str, protocol: Protocol) {
     println!(
         "{} Service started, you can now share this ID to client to let them connect to {}.",
         ">".green(),
-        format!("{}", source).bright_cyan()
+        format!("{}", source_socket).bright_cyan()
     );
     println!("ID: {}", format!("{}.{}", nodeid, alpn).bright_cyan());
 
