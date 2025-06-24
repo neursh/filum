@@ -26,7 +26,7 @@ Tested on i5-7500 3.40GHz:
 |                     | Native port | Filum port |
 | ------------------- | ----------- | ---------- |
 | **Latency impact:** |
-| First hit:          | ~1ms        | ~245ms     |
+| First hit:          | ~1ms        | ~183ms     |
 | Send packets:       | ~0.5ms      | ~1ms       |
 | **CPU usage:**      |
 | Client:             | 0%          | ~1.5%      |
