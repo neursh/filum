@@ -2,7 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
 
 jobs:
   check-build-trigger:
@@ -17,7 +17,7 @@ jobs:
         run: |
           commit_msg="${{ github.event.head_commit.message }}"
           echo "Commit message: $commit_msg"
-
+          
           if [[ $commit_msg =~ ^\[BUILD[[:space:]]+([^]]+)\] ]]; then
             version="${BASH_REMATCH[1]}"
             echo "should-build=true" >> $GITHUB_OUTPUT
@@ -37,10 +37,6 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-x86_64
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            name: linux-aarch64-termux
-            setup-cross: true
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             name: windows-x86_64
@@ -53,7 +49,7 @@ jobs:
             name: macos-aarch64
 
     runs-on: ${{ matrix.os }}
-
+    
     steps:
       - uses: actions/checkout@v4
 
@@ -62,24 +58,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation dependencies
-        if: matrix.setup-cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-          # Install cross for easier cross-compilation
-          cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Configure cross-compilation
-        if: matrix.setup-cross
-        run: |
-          mkdir -p ~/.cargo
-          cat >> ~/.cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "rust-lld"
-          EOF
-
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -87,14 +65,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.target }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build with cross
-        if: matrix.setup-cross
-        run: cross build --release --target ${{ matrix.target }}
-
-      - name: Build normally
-        if: ${{ !matrix.setup-cross }}
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Get binary name
@@ -111,7 +84,7 @@ jobs:
         run: |
           binary_name="${{ steps.binary.outputs.name }}"
           target_dir="target/${{ matrix.target }}/release"
-
+          
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             binary_file="$target_dir/${binary_name}.exe"
             artifact_name="${binary_name}-${{ needs.check-build-trigger.outputs.version }}-${{ matrix.name }}.exe"
@@ -119,7 +92,7 @@ jobs:
             binary_file="$target_dir/${binary_name}"
             artifact_name="${binary_name}-${{ needs.check-build-trigger.outputs.version }}-${{ matrix.name }}"
           fi
-
+          
           cp "$binary_file" "$artifact_name"
           echo "artifact-name=$artifact_name" >> $GITHUB_OUTPUT
 
@@ -154,10 +127,10 @@ jobs:
         id: release-notes
         run: |
           version="${{ needs.check-build-trigger.outputs.version }}"
-
+          
           # Get the previous tag
           previous_tag=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
-
+          
           if [[ -n "$previous_tag" ]]; then
             echo "## Changes since $previous_tag" > release_notes.md
             echo "" >> release_notes.md
@@ -169,24 +142,14 @@ jobs:
             echo "" >> release_notes.md
             echo "- Initial release" >> release_notes.md
           fi
-
+          
           echo "" >> release_notes.md
           echo "## Assets" >> release_notes.md
           echo "" >> release_notes.md
           echo "This release includes binaries for:" >> release_notes.md
           echo "- Linux (x86_64)" >> release_notes.md
-          echo "- Linux ARM64 (Termux compatible)" >> release_notes.md
           echo "- Windows (x86_64)" >> release_notes.md
           echo "- macOS (x86_64 and ARM64)" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "### Termux Installation" >> release_notes.md
-          echo "For Termux users, download the \`linux-aarch64-termux\` binary:" >> release_notes.md
-          echo "\`\`\`bash" >> release_notes.md
-          echo "# Download the binary (replace URL with actual release URL)" >> release_notes.md
-          echo "wget https://github.com/\$USER/\$REPO/releases/download/$version/your-binary-$version-linux-aarch64-termux" >> release_notes.md
-          echo "chmod +x your-binary-$version-linux-aarch64-termux" >> release_notes.md
-          echo "mv your-binary-$version-linux-aarch64-termux ~/bin/your-binary" >> release_notes.md
-          echo "\`\`\`" >> release_notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
