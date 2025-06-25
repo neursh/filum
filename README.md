@@ -13,7 +13,7 @@ This program is best suited for testing or hosting a game server without the has
 | Client support | Server support |
 | -------------- | -------------- |
 | ✅ TCP         | ✅ TCP         |
-| ❌ UDP (wip)   | ✅ UDP         |
+| ❌ UDP (wip)   | ❌ UDP (wip)   |
 
 ## Performance
 
