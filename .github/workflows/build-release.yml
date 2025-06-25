@@ -37,7 +37,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-x86_64
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             name: linux-aarch64-termux
             setup-cross: true
@@ -66,15 +66,18 @@ jobs:
         if: matrix.setup-cross
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y musl-tools
+          
+          # Install cross for easier cross-compilation
+          cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Configure cross-compilation
         if: matrix.setup-cross
         run: |
           mkdir -p ~/.cargo
           cat >> ~/.cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
+          [target.aarch64-unknown-linux-musl]
+          linker = "rust-lld"
           EOF
 
       - name: Cache cargo registry
@@ -87,7 +90,12 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          if [[ "${{ matrix.setup-cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
 
       - name: Get binary name
         id: binary
