@@ -10,10 +10,14 @@ use tokio::{
 /// Connect client to server over a ghost socket.
 pub async fn connection_bridge(
     source_socket: SocketAddr,
-    bridge_addr: SocketAddr,
     remote_addr_log: String,
     mut client_stream: (SendStream, RecvStream)
 ) {
+    let bridge_addr: SocketAddr = match source_socket.is_ipv4() {
+        true => "127.0.0.1:0".parse().unwrap(),
+        false => "[::1]:0".parse().unwrap(),
+    };
+    
     let proxied_server = match source_socket.is_ipv4() {
         true => TcpSocket::new_v4().unwrap(),
         false => TcpSocket::new_v6().unwrap(),

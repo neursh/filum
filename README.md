@@ -10,10 +10,10 @@ Written in Rust, running Iroh under the hood. This is a thin program on top to r
 
 This program is best suited for testing or hosting a game server without the hassle of port forwarding and dynamic public IP stuff.
 
-| Client support | Server support |
-| -------------- | -------------- |
-| ✅ TCP         | ✅ TCP         |
-| ❌ UDP (wip)   | ❌ UDP (wip)   |
+| Client support          | Server support          |
+| ----------------------- | ----------------------- |
+| ✅ TCP                  | ✅ TCP                  |
+| ✳️ UDP (tests required) | ✳️ UDP (tests required) |
 
 ## Performance
 

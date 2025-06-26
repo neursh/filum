@@ -85,11 +85,6 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
         }
     };
 
-    let bridge_addr: SocketAddr = match source_socket.is_ipv4() {
-        true => "127.0.0.1:0".parse().unwrap(),
-        false => "[::1]:0".parse().unwrap(),
-    };
-
     println!(
         "{}{} | {}",
         remote_addr_log.bold().green(),
@@ -105,14 +100,12 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
         Protocol::Tcp =>
             tcp::connection_bridge(
                 source_socket,
-                bridge_addr,
                 remote_addr_log,
                 client_stream
             ).await,
         Protocol::Udp =>
             udp::connection_bridge(
                 source_socket,
-                bridge_addr,
                 remote_addr_log,
                 client_stream
             ).await,

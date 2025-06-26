@@ -2,17 +2,21 @@ use std::{ net::SocketAddr, sync::Arc };
 
 use colored::Colorize;
 use iroh::endpoint::{ RecvStream, SendStream, VarInt };
-use tokio::{ net::UdpSocket, sync::RwLock };
+use tokio::net::UdpSocket;
 
 /// Connect client to server over a ghost socket.
 pub async fn connection_bridge(
     source_socket: SocketAddr,
-    bridge_addr: SocketAddr,
     remote_addr_log: String,
     mut client_stream: (SendStream, RecvStream)
 ) {
+    let bridge_addr: SocketAddr = match source_socket.is_ipv4() {
+        true => "127.0.0.1:0".parse().unwrap(),
+        false => "[::1]:0".parse().unwrap(),
+    };
+
     let proxied_server = match UdpSocket::bind(bridge_addr).await {
-        Ok(socket) => socket,
+        Ok(socket) => Arc::new(socket),
         Err(_) => {
             println!(
                 "{}{}",
@@ -35,9 +39,6 @@ pub async fn connection_bridge(
         }
     }
 
-    // Wrap `proxied_server` inside Arc and RwLock to pass over 2 tasks.
-    let proxied_server = Arc::new(RwLock::new(proxied_server));
-
     tokio::join!(
         server_cast(proxied_server.clone(), client_stream.0, remote_addr_log.clone()),
         client_cast(proxied_server.clone(), client_stream.1, remote_addr_log.clone())
@@ -46,15 +47,14 @@ pub async fn connection_bridge(
 
 /// Cast server packets over proxy to client.
 async fn server_cast(
-    proxied_server: Arc<RwLock<UdpSocket>>,
+    proxied_server: Arc<UdpSocket>,
     mut client_writer: SendStream,
     addr_log: String
 ) {
     let mut buffer = [0_u8; 4096];
 
-    let proxied_server_read = proxied_server.read().await;
     loop {
-        let length = match proxied_server_read.recv(&mut buffer).await {
+        let length = match proxied_server.recv(&mut buffer).await {
             Ok(length) => {
                 if length == 0 {
                     println!("{}{}", addr_log.bold().yellow(), "Server disconnected.");
@@ -80,13 +80,12 @@ async fn server_cast(
 
 /// Cast client packets over proxy to server.
 async fn client_cast(
-    proxied_server: Arc<RwLock<UdpSocket>>,
+    proxied_server: Arc<UdpSocket>,
     mut client_reader: RecvStream,
     addr_log: String
 ) {
     let mut buffer = [0_u8; 4096];
 
-    let proxied_server_write = proxied_server.read().await;
     loop {
         let length = match client_reader.read(&mut buffer).await {
             Ok(length) => {
@@ -107,7 +106,7 @@ async fn client_cast(
             }
         };
 
-        if let Err(message) = proxied_server_write.send(&buffer[..length]).await {
+        if let Err(message) = proxied_server.send(&buffer[..length]).await {
             println!("{}{}", addr_log.bold().red(), message);
             break;
         }
