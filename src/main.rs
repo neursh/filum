@@ -1,6 +1,6 @@
 mod host;
 mod structs;
-mod client;
+mod instance;
 
 use clap::{ Parser, Subcommand };
 
@@ -23,7 +23,7 @@ enum Commands {
     },
 
     /// Connect to a P2P service.
-    Client {
+    Instance {
         #[command(subcommand)]
         protocol: ClientProtocolOptions,
     },
@@ -47,17 +47,17 @@ enum ClientProtocolOptions {
         /// A provided node ID from host.
         node: String,
 
-        /// Destination port to use on client, leave empty to let the program to select a random one.
-        #[arg(default_value("0"))]
-        port: u16,
+        /// IP and port. Ex: "0.0.0.0:7141", leave empty to let the program select a random IPv4.
+        #[arg(default_value("127.0.0.1:0"))]
+        output: String,
     },
     Udp {
         /// A provided node ID from host.
         node: String,
 
-        /// Destination port to use on client, leave empty to let the program to select a random one.
-        #[arg(default_value("0"))]
-        port: u16,
+        /// IP and port. Ex: "0.0.0.0:7141", leave empty to let the program select a random IPv4.
+        #[arg(default_value("127.0.0.1:0"))]
+        output: String,
     },
 }
 
@@ -71,9 +71,9 @@ async fn main() {
         Commands::Host { protocol: HostProtocolOptions::Udp { source } } =>
             host::create::create_host(source, Protocol::Udp).await,
 
-        Commands::Client { protocol: ClientProtocolOptions::Tcp { node, port } } =>
-            client::connect::establish(node, port, Protocol::Tcp).await,
-        Commands::Client { protocol: ClientProtocolOptions::Udp { node, port } } =>
-            client::connect::establish(node, port, Protocol::Udp).await,
+        Commands::Instance { protocol: ClientProtocolOptions::Tcp { node, output } } =>
+            instance::connect::establish(node, output, Protocol::Tcp).await,
+        Commands::Instance { protocol: ClientProtocolOptions::Udp { node, output } } =>
+            instance::connect::establish(node, output, Protocol::Udp).await,
     }
 }
