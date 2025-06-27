@@ -21,10 +21,7 @@ pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn
     let mut buffer = [0_u8; 4096];
     loop {
         let content = match proxy_layer.recv_from(&mut buffer).await {
-            Ok((length, addr)) => {
-                println!("{} {:?}", "New connection:".green(), addr);
-                (length, addr)
-            }
+            Ok((length, addr)) => { (length, addr) }
             Err(message) => {
                 println!("{} {:?}", "Connection error:".green(), message);
                 continue;
@@ -43,7 +40,10 @@ pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn
             }
             None => {
                 let channel: (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel(2048);
+                channel.0.send(buffer[..content.0].to_owned()).await.unwrap();
                 address_cache.insert(content.1, Arc::new(RwLock::new(channel.0))).await;
+
+                println!("{} {}", "New connection:".green(), content.1);
 
                 tokio::spawn(
                     proxy_traffic(
