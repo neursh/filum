@@ -28,6 +28,8 @@ pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn
             }
         };
 
+        println!("{} {:?}", content.1, buffer[..content.0].to_owned());
+
         match address_cache.get(&content.1).await {
             Some(channel) => {
                 if
@@ -114,6 +116,8 @@ async fn server_cast(
                 break;
             }
         };
+
+        println!("Server: {:?}", buffer[..length].to_owned());
 
         if let Err(message) = proxy_layer.send_to(&buffer[..length], client_address).await {
             println!("{}{}", addr_log, message);
