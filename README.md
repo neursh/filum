@@ -51,15 +51,17 @@ This command will then display an ID that you will share it to client, you can s
 ID: <141 characters, odd choice>
 ```
 
-### For client:
+### For instance:
 
 After getting the ID, put it in filum to bridge the gap between two networks:
 
 ```
-filum client tcp <141 characters, odd choice> <port>
+filum instance tcp <141 characters, odd choice> <port>
 ```
 
-The `port` argument is the port that filum will use on client to make an entry point, the client will use this port to connect to the destination server, so it's merely a mimic port that spit every thing back to the server.
+The name `instance` is to not be confused with the client that are connecting through this. 
+
+The `port` argument is the port that filum will use on instance to make an entry point, the instance will use this port to connect to the destination server, so it's merely a mimic port that spit every thing back to the server.
 
 ## Example
 
