@@ -26,11 +26,14 @@ Tested on i5-7500 3.40GHz:
 |                     | Native port | Filum port |
 | ------------------- | ----------- | ---------- |
 | **Latency impact:** |
-| First hit:          | ~1ms        | ~183ms     |
-| Send packets:       | ~0.5ms      | ~1ms       |
+| Send packets:       | ~1ms        | ~4ms (x4)  |
 | **CPU usage:**      |
 | Client:             | 0%          | ~5.5%      |
 | Server:             | 0%          | ~4.5%      |
+
+Download a 85MB file over HTTP. Left is Filum, right is native.
+
+![image](https://github.com/user-attachments/assets/97b5db01-8a71-4ebe-ad85-65e1435938bb)
 
 On first connection, client will have to negotiate with server for a bidirectional connection, which is why it took much longer than connecting to the port directly, but once connected, it will have minimal to no latency.
 
