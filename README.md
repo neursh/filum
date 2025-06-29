@@ -29,8 +29,8 @@ Tested on i5-7500 3.40GHz:
 | First hit:          | ~1ms        | ~183ms     |
 | Send packets:       | ~0.5ms      | ~1ms       |
 | **CPU usage:**      |
-| Client:             | 0%          | ~1.5%      |
-| Server:             | 0%          | ~1%        |
+| Client:             | 0%          | ~5.5%      |
+| Server:             | 0%          | ~4.5%      |
 
 On first connection, client will have to negotiate with server for a bidirectional connection, which is why it took much longer than connecting to the port directly, but once connected, it will have minimal to no latency.
 
@@ -59,7 +59,7 @@ After getting the ID, put it in filum to bridge the gap between two networks:
 filum instance tcp <141 characters, odd choice> <port>
 ```
 
-The name `instance` is to not be confused with the client that are connecting through this. 
+The name `instance` is to not be confused with the client that are connecting through this.
 
 The `port` argument is the port that filum will use on instance to make an entry point, the instance will use this port to connect to the destination server, so it's merely a mimic port that spit every thing back to the server.
 
