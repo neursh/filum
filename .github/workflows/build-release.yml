@@ -2,7 +2,7 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   check-build-trigger:
@@ -17,7 +17,7 @@ jobs:
         run: |
           commit_msg="${{ github.event.head_commit.message }}"
           echo "Commit message: $commit_msg"
-          
+
           if [[ $commit_msg =~ ^\[BUILD[[:space:]]+([^]]+)\] ]]; then
             version="${BASH_REMATCH[1]}"
             echo "should-build=true" >> $GITHUB_OUTPUT
@@ -49,7 +49,7 @@ jobs:
             name: macos-aarch64
 
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -84,15 +84,15 @@ jobs:
         run: |
           binary_name="${{ steps.binary.outputs.name }}"
           target_dir="target/${{ matrix.target }}/release"
-          
+
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             binary_file="$target_dir/${binary_name}.exe"
-            artifact_name="${binary_name}-${{ needs.check-build-trigger.outputs.version }}-${{ matrix.name }}.exe"
+            artifact_name="${binary_name}.exe"
           else
             binary_file="$target_dir/${binary_name}"
-            artifact_name="${binary_name}-${{ needs.check-build-trigger.outputs.version }}-${{ matrix.name }}"
+            artifact_name=binary_name
           fi
-          
+
           cp "$binary_file" "$artifact_name"
           echo "artifact-name=$artifact_name" >> $GITHUB_OUTPUT
 
@@ -127,10 +127,10 @@ jobs:
         id: release-notes
         run: |
           version="${{ needs.check-build-trigger.outputs.version }}"
-          
+
           # Get the previous tag
           previous_tag=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
-          
+
           if [[ -n "$previous_tag" ]]; then
             echo "## Changes since $previous_tag" > release_notes.md
             echo "" >> release_notes.md
@@ -142,7 +142,7 @@ jobs:
             echo "" >> release_notes.md
             echo "- Initial release" >> release_notes.md
           fi
-          
+
           echo "" >> release_notes.md
           echo "## Assets" >> release_notes.md
           echo "" >> release_notes.md
