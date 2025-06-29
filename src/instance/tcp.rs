@@ -77,14 +77,9 @@ pub async fn connection_bridge(
             writers_map.insert(raw_addr.clone(), writer);
         }
 
+        let client_log = format!("{} :: ", socket.1);
         tokio::spawn(
-            client_cast(
-                addr_log.clone(),
-                raw_addr,
-                reader,
-                writers_map.clone(),
-                hosting_writer.clone()
-            )
+            client_cast(client_log, raw_addr, reader, writers_map.clone(), hosting_writer.clone())
         );
     }
 }
@@ -107,16 +102,9 @@ async fn server_cast(
         // Parse the metadata
         let raw_addr: [u8; 18] = metadata[0..18].try_into().unwrap();
         let packet_length = u16::from_be_bytes(metadata[18..20].try_into().unwrap()) as usize;
-        if packet_length == 0 {
-            println!("{}{}", addr_log, "Disconnected.");
-            // Remove the address when there's nothing sent over (disconnected).
-            {
-                writers_map.remove(&raw_addr);
-            }
-            continue;
-        }
 
         // Read the actual packets from server if nothing goes wrong.
+        // We'll handle when `packet_length` is 0, after sending nothing over to client.
         let mut packet = vec![0_u8; packet_length];
         if let Err(message) = hosting_reader.read_exact(&mut packet).await {
             println!("{}{}", addr_log, message);
@@ -149,13 +137,25 @@ async fn server_cast(
                 }
                 continue;
             }
+
+            // Remove everything, we bail.
+            if packet_length == 0 {
+                println!("{}{}", addr_log, "Disconnected.");
+                // Remove the address when there's nothing sent over (disconnected).
+                let _ = writer.shutdown().await;
+                drop(writer);
+                {
+                    writers_map.remove(&raw_addr);
+                }
+                continue;
+            }
         }
     }
 }
 
 /// Cast client packets back to server.
 async fn client_cast(
-    addr_log: String,
+    client_log: String,
     raw_addr: [u8; 18],
     mut reader: ReadHalf<TcpStream>,
     writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>,
@@ -171,7 +171,7 @@ async fn client_cast(
         let length = match reader.read(&mut packet).await {
             Ok(length) => { length }
             Err(message) => {
-                println!("{}{}", addr_log, message);
+                println!("{}{}", client_log, message);
                 break;
             }
         };
@@ -183,14 +183,14 @@ async fn client_cast(
         {
             let mut writer = hosting_writer.lock().await;
             if let Err(message) = writer.write_all(&composer[0..length + 20]).await {
-                println!("{}{}", addr_log, message);
+                println!("{}{}", client_log, message);
                 break;
             }
         }
 
         // After sending an empty message to notify the server that client is gone, break this loop.
         if length == 0 {
-            println!("{}{}", addr_log, "Disconnected.");
+            println!("{}{}", client_log, "Disconnected.");
             break;
         }
     }
