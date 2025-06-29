@@ -1,16 +1,20 @@
-use std::net::SocketAddr;
+use std::{ net::SocketAddr, sync::Arc };
+use std::net::IpAddr;
 
 use colored::Colorize;
-use iroh::endpoint::{ RecvStream, SendStream, VarInt };
+use dashmap::DashMap;
+use iroh::{ endpoint::{ Connection, RecvStream, SendStream }, Endpoint };
 use tokio::{
     io::{ AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf },
     net::{ TcpSocket, TcpStream },
+    sync::Mutex,
 };
 
-use crate::instance::contact;
-
 /// Connect client to server over a ghost socket.
-pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn: Vec<u8>) {
+pub async fn connection_bridge(
+    output_socket: SocketAddr,
+    endpoint: (Endpoint, Connection, (SendStream, RecvStream))
+) {
     let addr_log = format!("{} :: ", output_socket);
 
     let proxy_layer = (
@@ -27,17 +31,23 @@ pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn
     let proxy_listener = match proxy_layer.listen(1024) {
         Ok(listener) => listener,
         Err(message) => {
-            println!("{}{}", ">".red(), message);
+            println!("{} {}", ">".red(), message);
             return;
         }
     };
 
+    // Structure:
+    // Key: [0..16] ip address | [16..18] port
+    // Value: WriteHalf of the corresponding socket
+    let writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>> = Arc::new(DashMap::new());
+
+    // Run a server_cast task to handle every sockets that are connected to the host.
+    tokio::spawn(server_cast(addr_log.clone(), endpoint.2.1, writers_map.clone()));
+
+    let hosting_writer = Arc::new(Mutex::new(endpoint.2.0));
     loop {
         let socket = match proxy_listener.accept().await {
-            Ok((socket, addr)) => {
-                println!("{}{}", "New connection:".green(), addr);
-                (socket, addr)
-            }
+            Ok((socket, addr)) => { (socket, addr) }
             Err(message) => {
                 println!("{}{}", "Connection error:".green(), message);
                 continue;
@@ -46,85 +56,113 @@ pub async fn connection_bridge(output_socket: SocketAddr, nodeid: [u8; 32], alpn
 
         let (reader, writer) = tokio::io::split(socket.0);
 
-        tokio::spawn(proxy_traffic(addr_log.clone(), reader, writer, nodeid.clone(), alpn.clone()));
+        let mut raw_addr = match socket.1.ip() {
+            IpAddr::V4(ipv4) => {
+                let mut fitter = [0_u8; 18];
+                fitter[..4].copy_from_slice(&ipv4.octets());
+                fitter
+            }
+            IpAddr::V6(ipv6) => {
+                let mut fitter = [0_u8; 18];
+                fitter[..16].copy_from_slice(&ipv6.octets());
+                fitter
+            }
+        };
+        raw_addr[16..18].copy_from_slice(&socket.1.port().to_be_bytes());
+
+        {
+            writers_map.insert(raw_addr.clone(), writer);
+        }
+
+        tokio::spawn(
+            client_cast(
+                addr_log.clone(),
+                raw_addr,
+                reader,
+                writers_map.clone(),
+                hosting_writer.clone()
+            )
+        );
     }
 }
 
-async fn proxy_traffic(
-    addr_log: String,
-    reader: ReadHalf<TcpStream>,
-    writer: WriteHalf<TcpStream>,
-    nodeid: [u8; 32],
-    alpn: Vec<u8>
-) {
-    let hosting_node = if
-        let Ok(endpoint) = contact::endpoint(addr_log.clone(), nodeid, alpn).await
-    {
-        endpoint
-    } else {
-        return;
-    };
-
-    tokio::join!(
-        server_cast(addr_log.clone(), hosting_node.2.1, writer),
-        client_cast(addr_log.clone(), hosting_node.2.0, reader)
-    );
-
-    hosting_node.1.close(VarInt::from_u32(0), &[0]);
-    hosting_node.0.close().await;
-}
-
-/// Cast server packets over proxy to client.
+/// Cast server packets over instance to client.
 async fn server_cast(
     addr_log: String,
     mut hosting_reader: RecvStream,
-    mut writer: WriteHalf<TcpStream>
+    writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>
 ) {
-    let mut buffer = [0_u8; 4096];
-
     loop {
-        let length = match hosting_reader.read(&mut buffer).await {
-            Ok(length) => {
-                if let Some(length) = length {
-                    if length == 0 {
-                        println!("{}{}", addr_log, "Server disconnected.");
-                        let _ = hosting_reader.stop(VarInt::from_u32(0));
-                        break;
-                    }
-                    length
-                } else {
-                    println!("{}{}", addr_log, "Stream finished.");
-                    break;
-                }
-            }
-            Err(message) => {
-                println!("{}{}", addr_log, message);
-                break;
-            }
-        };
-
-        if let Err(message) = writer.write_all(&buffer[..length]).await {
+        // Read the metadata from server.
+        let mut metadata = [0_u8; 20];
+        if let Err(message) = hosting_reader.read_exact(&mut metadata).await {
             println!("{}{}", addr_log, message);
-            break;
+            continue;
+        }
+
+        // Parse the metadata
+        let raw_addr: [u8; 18] = metadata[0..18].try_into().unwrap();
+        let packet_length = u16::from_be_bytes(metadata[18..20].try_into().unwrap()) as usize;
+        if packet_length == 0 {
+            println!("{}{}", addr_log, "Disconnected.");
+            // Remove the address when there's nothing sent over (disconnected).
+            {
+                writers_map.remove(&raw_addr);
+            }
+            continue;
+        }
+
+        // Read the actual packets from server if nothing goes wrong.
+        let mut packet = vec![0_u8; packet_length];
+        if let Err(message) = hosting_reader.read_exact(&mut packet).await {
+            println!("{}{}", addr_log, message);
+            continue;
+        }
+
+        // Write the packets over to the actual socket on client.
+        {
+            let mut writer = match writers_map.get_mut(&raw_addr) {
+                Some(writer) => writer,
+                None => {
+                    println!(
+                        "{} Server sent to an address that was not known by filum, disposing...",
+                        ">".red()
+                    );
+                    continue;
+                }
+            };
+
+            if let Err(message) = writer.write_all(&packet).await {
+                println!("{}{}", addr_log, message);
+                // Yej, just drop the writer lock and remove the whole thang.
+                drop(writer);
+                {
+                    writers_map.remove(&raw_addr);
+                }
+                continue;
+            }
         }
     }
-
-    let _ = writer.shutdown().await;
 }
 
 /// Cast client packets back to server.
 async fn client_cast(
     addr_log: String,
-    mut hosting_writer: SendStream,
-    mut reader: ReadHalf<TcpStream>
+    raw_addr: [u8; 18],
+    mut reader: ReadHalf<TcpStream>,
+    writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>,
+    hosting_writer: Arc<Mutex<SendStream>>
 ) {
-    let mut buffer = [0_u8; 4096];
+    let mut packet = [0_u8; 4096];
+    let mut composer = raw_addr.to_vec();
 
     loop {
-        let length = match reader.read(&mut buffer).await {
+        // Read from client.
+        let length = match reader.read(&mut packet).await {
             Ok(length) => {
                 if length == 0 {
-                    println!("{}{}", addr_log, "Client disconnected.");
+                    println!("{}{}", addr_log, "Disconnected.");
+                    // Remove the address when there's nothing sent over (disconnected).
                     break;
                 }
                 length
@@ -135,11 +173,21 @@ async fn client_cast(
             }
         };
 
-        if let Err(message) = hosting_writer.write_all(&buffer[..length]).await {
-            println!("{}{}", addr_log, message);
-            break;
+        // Compose and send over to host.
+        composer.resize(length + 20, 0);
+        composer[18..20].copy_from_slice(&(length as u16).to_be_bytes());
+        composer[20..length + 20].copy_from_slice(&packet[..length]);
+        {
+            let mut writer = hosting_writer.lock().await;
+            if let Err(message) = writer.write_all(&composer[0..length + 20]).await {
+                println!("{}{}", addr_log, message);
+                break;
+            }
         }
     }
 
-    let _ = hosting_writer.finish();
+    // Always remove the writer when out of the loop.
+    {
+        writers_map.remove(&raw_addr);
+    }
 }

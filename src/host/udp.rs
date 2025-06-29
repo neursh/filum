@@ -8,7 +8,7 @@ use tokio::net::UdpSocket;
 pub async fn connection_bridge(
     source_socket: SocketAddr,
     remote_addr_log: String,
-    mut client_stream: (SendStream, RecvStream)
+    mut instance_stream: (SendStream, RecvStream)
 ) {
     let bridge_addr: SocketAddr = match source_socket.is_ipv4() {
         true => "127.0.0.1:0".parse().unwrap(),
@@ -23,8 +23,8 @@ pub async fn connection_bridge(
                 remote_addr_log.bold().red(),
                 "Can't find a suitable port or IP to create a proxy layer over to client."
             );
-            let _ = client_stream.1.stop(VarInt::from_u32(0));
-            let _ = client_stream.0.finish();
+            let _ = instance_stream.1.stop(VarInt::from_u32(0));
+            let _ = instance_stream.0.finish();
             return;
         }
     };
@@ -33,15 +33,15 @@ pub async fn connection_bridge(
         Ok(proxy_stream) => proxy_stream,
         Err(message) => {
             println!("{}{}", remote_addr_log.bold().red(), message);
-            let _ = client_stream.1.stop(VarInt::from_u32(0));
-            let _ = client_stream.0.finish();
+            let _ = instance_stream.1.stop(VarInt::from_u32(0));
+            let _ = instance_stream.0.finish();
             return;
         }
     }
 
     tokio::join!(
-        server_cast(proxied_server.clone(), client_stream.0, remote_addr_log.clone()),
-        client_cast(proxied_server.clone(), client_stream.1, remote_addr_log.clone())
+        server_cast(proxied_server.clone(), instance_stream.0, remote_addr_log.clone()),
+        client_cast(proxied_server.clone(), instance_stream.1, remote_addr_log.clone())
     );
 }
 

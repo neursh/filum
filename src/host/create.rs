@@ -59,11 +59,11 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
 
     // Accept the client's request.
     // To check the connection, we'll do ping pong.
-    let (client_stream, receive_latency, send_latency) = match connection.accept_bi().await {
-        Ok(mut client_stream) => {
+    let (instance_stream, receive_latency, send_latency) = match connection.accept_bi().await {
+        Ok(mut instance_stream) => {
             // Wait for client to send back a single bit to confirm.
             let receive_latency = quanta::Instant::now();
-            if let Err(message) = client_stream.1.read(&mut [1]).await {
+            if let Err(message) = instance_stream.1.read(&mut [1]).await {
                 println!("{}{}", remote_addr_log.bold().red(), message);
                 return;
             }
@@ -71,13 +71,13 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
 
             // Send a confirm bit back to client.
             let send_latency = quanta::Instant::now();
-            if let Err(message) = client_stream.0.write(&[1]).await {
+            if let Err(message) = instance_stream.0.write_all(&[1]).await {
                 println!("{}{}", remote_addr_log.bold().red(), message);
                 return;
             }
             let send_latency = send_latency.elapsed();
 
-            (client_stream, receive_latency, send_latency)
+            (instance_stream, receive_latency, send_latency)
         }
         Err(message) => {
             println!("{}{}", remote_addr_log.bold().red(), message);
@@ -101,13 +101,13 @@ async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol
             tcp::connection_bridge(
                 source_socket,
                 remote_addr_log,
-                client_stream
+                instance_stream
             ).await,
         Protocol::Udp =>
             udp::connection_bridge(
                 source_socket,
                 remote_addr_log,
-                client_stream
+                instance_stream
             ).await,
     }
 }
