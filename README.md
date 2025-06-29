@@ -23,13 +23,13 @@ Because of the overhead, there will be some delay, I've tested a release build o
 
 Tested on i5-7500 3.40GHz:
 
-|                     | Native port | Filum port |
-| ------------------- | ----------- | ---------- |
+|                     | Native port | Filum port   |
+| ------------------- | ----------- | ------------ |
 | **Latency impact:** |
-| Send packets:       | ~1ms        | ~1ms (~x1.1)  |
+| Send packets:       | ~1ms        | ~1ms (~x1.1) |
 | **CPU usage:**      |
-| Client:             | 0%          | ~5.5%      |
-| Server:             | 0%          | ~4.5%      |
+| Client:             | 0%          | ~5.5%        |
+| Server:             | 0%          | ~4.5%        |
 
 Download a 85MB file over HTTP. Left is Filum, right is native.
 
@@ -59,7 +59,7 @@ ID: <141 characters, odd choice>
 After getting the ID, put it in filum to bridge the gap between two networks:
 
 ```
-filum instance tcp <141 characters, odd choice> <port>
+filum instance tcp <destination> <141 characters, odd choice>
 ```
 
 The name `instance` is to not be confused with the client that are connecting through this.

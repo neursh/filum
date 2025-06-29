@@ -30,7 +30,7 @@ pub async fn connection_bridge(
         }
 
         // Parse the metadata
-        let raw_addr: [u8; 18] = metadata[0..18].try_into().unwrap();
+        let raw_addr: [u8; 18] = metadata[..18].try_into().unwrap();
         let packet_length = u16::from_be_bytes(metadata[18..20].try_into().unwrap()) as usize;
 
         // Read the actual packets from server if nothing goes wrong.
@@ -60,9 +60,16 @@ pub async fn connection_bridge(
                     {
                         clients_map.insert(raw_addr, packet_sender);
                     }
+
+                    let client_port_log = format!(
+                        "{}-> {} :: ",
+                        remote_addr_log,
+                        u16::from_be_bytes(raw_addr[16..18].try_into().unwrap())
+                    );
+
                     tokio::spawn(
                         make_new_socket(
-                            remote_addr_log.clone(),
+                            client_port_log,
                             source_socket.clone(),
                             packet_receiver,
                             endpoint_writer.clone(),
@@ -77,7 +84,7 @@ pub async fn connection_bridge(
 }
 
 async fn make_new_socket(
-    remote_addr_log: String,
+    client_port_log: String,
     source_socket: SocketAddr,
     mut packet_receiver: Receiver<Vec<u8>>,
     endpoint_writer: Arc<Mutex<SendStream>>,
@@ -97,7 +104,7 @@ async fn make_new_socket(
     if proxied_client.bind(bridge_addr).is_err() {
         println!(
             "{}{}",
-            remote_addr_log.bold().red(),
+            client_port_log.bold().red(),
             "Can't find a suitable port or IP to create a proxy layer over to client. Aborting..."
         );
         packet_receiver.close();
@@ -107,7 +114,7 @@ async fn make_new_socket(
     let proxied_stream = match proxied_client.connect(source_socket).await {
         Ok(proxied_stream) => proxied_stream,
         Err(message) => {
-            println!("{}{}", remote_addr_log.bold().red(), message);
+            println!("{}{}", client_port_log.bold().red(), message);
             packet_receiver.close();
             return;
         }
@@ -115,21 +122,23 @@ async fn make_new_socket(
 
     let (reader, writer) = tokio::io::split(proxied_stream);
 
+    println!("{}Connected!", client_port_log.green());
+
     tokio::join!(
         server_cast(
-            remote_addr_log.clone(),
+            client_port_log.clone(),
             raw_addr,
             reader,
             endpoint_writer.clone(),
             clients_map.clone()
         ),
-        client_cast(remote_addr_log, raw_addr, writer, packet_receiver, clients_map)
+        client_cast(client_port_log, raw_addr, writer, packet_receiver, clients_map)
     );
 }
 
 /// Cast server packets over proxy to client.
 async fn server_cast(
-    remote_addr_log: String,
+    client_port_log: String,
     raw_addr: [u8; 18],
     mut reader: ReadHalf<TcpStream>,
     endpoint_writer: Arc<Mutex<SendStream>>,
@@ -139,16 +148,13 @@ async fn server_cast(
     let mut composer = raw_addr.to_vec();
 
     loop {
+        // Read from client.
+        // When length is 0, meaning the client is disconnected, don't break the loop just yet.
+        // We'll send a final message, passing over a 0 length packet.
         let length = match reader.read(&mut packet).await {
-            Ok(length) => {
-                if length == 0 {
-                    println!("{}{}", remote_addr_log.bold().yellow(), "Disconnected.");
-                    break;
-                }
-                length
-            }
+            Ok(length) => { length }
             Err(message) => {
-                println!("{}{}", remote_addr_log.bold().red(), message);
+                println!("{}{}", client_port_log.bold().red(), message);
                 break;
             }
         };
@@ -162,9 +168,15 @@ async fn server_cast(
                     .lock().await
                     .write_all(&composer[0..length + 20]).await
             {
-                println!("{}{}", remote_addr_log.bold().red(), message);
+                println!("{}{}", client_port_log.bold().red(), message);
                 break;
             }
+        }
+
+        // After sending an empty message to notify the client that the head is gone, break this loop.
+        if length == 0 {
+            println!("{}Disconnected.", client_port_log.bold().yellow());
+            break;
         }
     }
 
@@ -173,7 +185,7 @@ async fn server_cast(
 
 /// Cast client packets over proxy to server.
 async fn client_cast(
-    remote_addr_log: String,
+    client_addr_log: String,
     raw_addr: [u8; 18],
     mut writer: WriteHalf<TcpStream>,
     mut packet_receiver: Receiver<Vec<u8>>,
@@ -189,7 +201,11 @@ async fn client_cast(
         };
 
         if let Err(message) = writer.write_all(&packet).await {
-            println!("{}{}", remote_addr_log.bold().red(), message);
+            println!("{}{}", client_addr_log.bold().red(), message);
+            break;
+        }
+
+        if packet.len() == 0 {
             break;
         }
     }

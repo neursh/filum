@@ -6,7 +6,7 @@ One instance will send over all connections to host.
 
 To send a packet over, we must first compose the header, consuming 20 bytes.
 
-[0..16]: The local IP address on that `Endpoint` local machine.
+[..16]: The local IP address on that `Endpoint` local machine.
 
 [16..18]: The local port on that `Endpoint` local machine.
 

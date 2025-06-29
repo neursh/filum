@@ -41,10 +41,13 @@ pub async fn connection_bridge(
     // Value: WriteHalf of the corresponding socket
     let writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>> = Arc::new(DashMap::new());
 
-    // Run a server_cast task to handle every sockets that are connected to the host.
-    tokio::spawn(server_cast(addr_log.clone(), endpoint.2.1, writers_map.clone()));
-
     let hosting_writer = Arc::new(Mutex::new(endpoint.2.0));
+
+    // Run a server_cast task to handle every sockets that are connected to the host.
+    tokio::spawn(
+        server_cast(addr_log.clone(), endpoint.2.1, hosting_writer.clone(), writers_map.clone())
+    );
+
     loop {
         let socket = match proxy_listener.accept().await {
             Ok((socket, addr)) => { (socket, addr) }
@@ -59,12 +62,12 @@ pub async fn connection_bridge(
         let mut raw_addr = match socket.1.ip() {
             IpAddr::V4(ipv4) => {
                 let mut fitter = [0_u8; 18];
-                fitter[..4].copy_from_slice(&ipv4.octets());
+                fitter[..4].copy_from_slice(&ipv4.to_bits().to_be_bytes());
                 fitter
             }
             IpAddr::V6(ipv6) => {
                 let mut fitter = [0_u8; 18];
-                fitter[..16].copy_from_slice(&ipv6.octets());
+                fitter[..16].copy_from_slice(&ipv6.to_bits().to_be_bytes());
                 fitter
             }
         };
@@ -90,6 +93,7 @@ pub async fn connection_bridge(
 async fn server_cast(
     addr_log: String,
     mut hosting_reader: RecvStream,
+    hosting_writer: Arc<Mutex<SendStream>>,
     writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>
 ) {
     loop {
@@ -125,9 +129,13 @@ async fn server_cast(
                 Some(writer) => writer,
                 None => {
                     println!(
-                        "{} Server sent to an address that was not known by filum, disposing...",
+                        "{} Server sent to an address that was not known by filum, asking server to close it...",
                         ">".red()
                     );
+                    {
+                        metadata[18..20].copy_from_slice(&[0, 0]);
+                        let _ = hosting_writer.lock().await.write_all(&metadata[0..20]).await;
+                    }
                     continue;
                 }
             };
@@ -158,15 +166,10 @@ async fn client_cast(
 
     loop {
         // Read from client.
+        // When length is 0, meaning the client is disconnected, don't break the loop just yet.
+        // We'll send a final message, passing over a 0 length packet.
         let length = match reader.read(&mut packet).await {
-            Ok(length) => {
-                if length == 0 {
-                    println!("{}{}", addr_log, "Disconnected.");
-                    // Remove the address when there's nothing sent over (disconnected).
-                    break;
-                }
-                length
-            }
+            Ok(length) => { length }
             Err(message) => {
                 println!("{}{}", addr_log, message);
                 break;
@@ -183,6 +186,12 @@ async fn client_cast(
                 println!("{}{}", addr_log, message);
                 break;
             }
+        }
+
+        // After sending an empty message to notify the server that client is gone, break this loop.
+        if length == 0 {
+            println!("{}{}", addr_log, "Disconnected.");
+            break;
         }
     }
 

@@ -44,20 +44,18 @@ enum HostProtocolOptions {
 #[derive(Subcommand)]
 enum ClientProtocolOptions {
     Tcp {
+        /// IP and port. Ex: "0.0.0.0:7141".
+        output: String,
+
         /// A provided node ID from host.
         node: String,
-
-        /// IP and port. Ex: "0.0.0.0:7141", leave empty to let the program select a random IPv4.
-        #[arg(default_value("127.0.0.1:0"))]
-        output: String,
     },
     Udp {
+        /// IP and port. Ex: "0.0.0.0:7141".
+        output: String,
+
         /// A provided node ID from host.
         node: String,
-
-        /// IP and port. Ex: "0.0.0.0:7141", leave empty to let the program select a random IPv4.
-        #[arg(default_value("127.0.0.1:0"))]
-        output: String,
     },
 }
 
