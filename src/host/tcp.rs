@@ -153,8 +153,6 @@ async fn server_cast(
             }
         };
 
-        println!("{:?}", packet[..length].to_vec());
-
         {
             composer.resize(length + 20, 0);
             composer[18..20].copy_from_slice(&(length as u16).to_be_bytes());
@@ -189,8 +187,6 @@ async fn client_cast(
                 return;
             }
         };
-
-        println!("{:?}", packet);
 
         if let Err(message) = writer.write_all(&packet).await {
             println!("{}{}", remote_addr_log.bold().red(), message);
