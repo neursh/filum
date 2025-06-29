@@ -94,7 +94,7 @@ jobs:
           fi
 
           cp "$binary_file" "$artifact_name"
-          echo "artifact-name=$binary_file" >> $GITHUB_OUTPUT
+          echo "artifact-name=$artifact_name" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
