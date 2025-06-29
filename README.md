@@ -35,7 +35,7 @@ Download a 85MB file over HTTP. Left is Filum, right is native.
 
 ![image](https://github.com/user-attachments/assets/97b5db01-8a71-4ebe-ad85-65e1435938bb)
 
-On first connection, client will have to negotiate with server for a bidirectional connection, which is why it took much longer than connecting to the port directly, but once connected, it will have minimal to no latency.
+On first connection to host, instance will have to negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
 
 ## Usage
 
