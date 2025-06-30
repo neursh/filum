@@ -38,7 +38,7 @@ Tested on i5-7500 3.40GHz:
 
 Download a 85MB file over HTTP. Left is Filum, right is native.
 
-![image](https://github.com/user-attachments/assets/97b5db01-8a71-4ebe-ad85-65e1435938bb)
+![image](https://github.com/user-attachments/assets/b83bd256-d9e7-425f-b709-9e34a3040bac)
 
 On first connection to host, instance will have to negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
 
