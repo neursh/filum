@@ -22,3 +22,9 @@ dashmap = "6.1.0"
 [profile.dev]
 opt-level = 0
 debug = true
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
