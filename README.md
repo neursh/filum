@@ -2,6 +2,11 @@
 
 Binds locally hosted TCP/UDP server to peer-to-peer.
 
+> [!WARNING]  
+> This program is under heavy development. Expect things to break and different behaviour between versions.
+>
+> Known good versions: `v0.2.2a`, `v0.2.1a`
+
 ## What is this?
 
 Basically, Filum allows you to "open a port" on demand using P2P, that people can connect to using this same program.
