@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 
 use base64::{ prelude::BASE64_STANDARD, Engine };
 use colored::Colorize;
+use iroh::NodeId;
 
-use crate::{ instance::{ contact, tcp }, structs::Protocol };
+use crate::{ instance::{ contact, tcp }, structs::Protocol, utils::display_info };
 
 pub async fn establish(node: String, output: String, protocol: Protocol) {
     let translate: Vec<&str> = node.split(".").collect();
@@ -36,7 +37,9 @@ pub async fn establish(node: String, output: String, protocol: Protocol) {
         }
     };
 
-    println!("{} {}", ">".green(), format!("Proxy server: {}", output_socket).bright_cyan());
+    display_info::print(&endpoint.0, NodeId::from_bytes(&nodeid).unwrap(), &addr_log);
+    println!("{}{}", addr_log.green(), format!("Proxy server: {}", output_socket).bright_cyan());
+
     match protocol {
         Protocol::Tcp => tcp::connection_bridge(output_socket, endpoint).await,
         Protocol::Udp => todo!(), //udp::connection_bridge(output_socket, endpoint).await,

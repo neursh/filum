@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use base64::{ prelude::BASE64_STANDARD, Engine };
 use colored::Colorize;
-use iroh::{ endpoint::Incoming, Endpoint };
+use iroh::{ endpoint::Connection, Endpoint };
 use nanoid::nanoid;
 
-use crate::{ host::{ tcp, udp }, structs::Protocol };
+use crate::{ host::{ tcp, udp }, structs::Protocol, utils::display_info };
 
 pub async fn create_host(source: String, protocol: Protocol) {
     let alpn = nanoid!(32);
@@ -36,78 +36,52 @@ async fn accept_handler(endpoint: Endpoint, source_socket: &SocketAddr, protocol
             }
         };
 
-        tokio::spawn(incoming_handle(incoming, source_socket.clone(), protocol.clone()));
+        let remote_addr_log = format!("{} :: ", incoming.remote_address());
+
+        let connection = match incoming.await {
+            Ok(connection) => connection,
+            Err(message) => {
+                println!("{}{}", remote_addr_log.bold().red(), message);
+                return;
+            }
+        };
+
+        println!(
+            "{}{}",
+            remote_addr_log.yellow().bold(),
+            "New client connected. Waiting for bidirectional negotiation..."
+        );
+
+        if let Ok(remote_nodeid) = connection.remote_node_id() {
+            display_info::print(&endpoint, remote_nodeid, &remote_addr_log);
+        }
+
+        tokio::spawn(
+            incoming_handle(remote_addr_log, connection, source_socket.clone(), protocol.clone())
+        );
     }
 }
 
-async fn incoming_handle(incoming: Incoming, source_socket: SocketAddr, protocol: Protocol) {
-    let remote_addr_log = format!("{} :: ", incoming.remote_address());
-
-    let connection = match incoming.await {
-        Ok(connection) => connection,
-        Err(message) => {
-            println!("{}{}", remote_addr_log.bold().red(), message);
-            return;
-        }
-    };
-
-    println!(
-        "{}{}",
-        remote_addr_log.yellow().bold(),
-        "New client connected. Waiting for bidirectional negotiation..."
-    );
-
+async fn incoming_handle(
+    remote_addr_log: String,
+    connection: Connection,
+    source_socket: SocketAddr,
+    protocol: Protocol
+) {
     // Accept the client's request.
     // To check the connection, we'll do ping pong.
-    let (instance_stream, receive_latency, send_latency) = match connection.accept_bi().await {
-        Ok(mut instance_stream) => {
-            // Wait for client to send back a single bit to confirm.
-            let receive_latency = quanta::Instant::now();
-            if let Err(message) = instance_stream.1.read(&mut [1]).await {
-                println!("{}{}", remote_addr_log.bold().red(), message);
-                return;
-            }
-            let receive_latency = receive_latency.elapsed();
-
-            // Send a confirm bit back to client.
-            let send_latency = quanta::Instant::now();
-            if let Err(message) = instance_stream.0.write_all(&[1]).await {
-                println!("{}{}", remote_addr_log.bold().red(), message);
-                return;
-            }
-            let send_latency = send_latency.elapsed();
-
-            (instance_stream, receive_latency, send_latency)
-        }
+    let instance_stream = match connection.accept_bi().await {
+        Ok(instance_stream) => instance_stream,
         Err(message) => {
             println!("{}{}", remote_addr_log.bold().red(), message);
             return;
         }
     };
-
-    println!(
-        "{}{} | {}",
-        remote_addr_log.bold().green(),
-        "Client stream established.",
-        format!(
-            "(Send: {}ms Recv: {}ms)",
-            send_latency.as_millis(),
-            receive_latency.as_millis()
-        ).bright_cyan()
-    );
 
     match protocol {
         Protocol::Tcp =>
-            tcp::connection_bridge(
-                source_socket,
-                remote_addr_log,
-                instance_stream
-            ).await,
+            tcp::connection_bridge(source_socket, remote_addr_log, instance_stream).await,
         Protocol::Udp =>
-            udp::connection_bridge(
-                source_socket,
-                remote_addr_log,
-                instance_stream
-            ).await,
+            udp::connection_bridge(source_socket, remote_addr_log, instance_stream).await,
     }
 }

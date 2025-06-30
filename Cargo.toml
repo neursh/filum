@@ -5,18 +5,15 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
-tokio = { version = "1.45.0", features = ["full"] }
+tokio = { version = "1.45.1", features = ["full"] }
 inquire = "0.7.5"
 colored = "3.0.0"
-indicatif = "0.17.11"
-blake3 = "1.8.2"
-iroh = "0.35.0"
-iroh-base = "0.35.0"
+iroh = "0.90.0"
+iroh-base = "0.90.0"
 anyhow = "1.0.98"
 nanoid = "0.4.0"
 clap = { version = "4.5.40", features = ["derive"] }
 base64 = "0.22.1"
-quanta = "0.12.6"
 dashmap = "6.1.0"
 tokio-util = "0.7.15"
 
