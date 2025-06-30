@@ -1,6 +1,7 @@
 mod host;
 mod structs;
 mod instance;
+mod utils;
 
 use clap::{ Parser, Subcommand };
 

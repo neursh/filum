@@ -8,6 +8,12 @@ use tokio::{
     net::{ TcpSocket, TcpStream },
     sync::{ mpsc::{ self, Receiver, Sender }, Mutex },
 };
+use tokio_util::sync::CancellationToken;
+
+use crate::utils::{
+    compose::{ self, Signal },
+    constants::{ ADDR_KEY_SIZE, BUFFER_SIZE, CHANNEL_SIZE, METADATA_SIZE, PORT_START },
+};
 
 /// Connect client to server over a ghost socket.
 pub async fn connection_bridge(
@@ -18,20 +24,29 @@ pub async fn connection_bridge(
     // Structure:
     // Key: [0..16] ip address | [16..18] port
     // Value: Sender for packets read by Endpoint to pass over to the handling task.
-    let clients_map: Arc<DashMap<[u8; 18], Sender<Vec<u8>>>> = Arc::new(DashMap::new());
+    let clients_map: Arc<
+        DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>
+    > = Arc::new(DashMap::new());
 
     let endpoint_writer = Arc::new(Mutex::new(instance_stream.0));
 
     loop {
-        let mut metadata = [0_u8; 20];
-        if let Err(message) = instance_stream.1.read_exact(&mut metadata).await {
-            println!("{}{}", remote_addr_log, message);
+        // Read the metadata.
+        let (raw_addr, packet_length, signal) = match
+            compose::read_and_parse_metadata(&mut instance_stream.1).await
+        {
+            Ok(metadata) => metadata,
+            Err(message) => {
+                println!("{}{}", remote_addr_log, message);
+                continue;
+            }
+        };
+
+        // Check if the client is asking for disconnection.
+        if signal == Signal::Dead {
+            final_clean_up(clients_map.clone(), raw_addr).await;
             continue;
         }
-
-        // Parse the metadata
-        let raw_addr: [u8; 18] = metadata[..18].try_into().unwrap();
-        let packet_length = u16::from_be_bytes(metadata[18..20].try_into().unwrap()) as usize;
 
         // Read the actual packets from server if nothing goes wrong.
         let mut packet = vec![0_u8; packet_length];
@@ -40,44 +55,50 @@ pub async fn connection_bridge(
             continue;
         }
 
-        {
-            let writer = clients_map.get(&raw_addr);
-            match writer {
-                Some(packet_sender) => {
-                    if packet_sender.send(packet).await.is_err() {
-                        drop(packet_sender);
-                        {
-                            clients_map.remove(&raw_addr);
-                        }
-                    }
+        let client = clients_map.get(&raw_addr);
+        match client {
+            // First scenario: There is a client connected through Filum.
+            // Send straight to message channel to be processed by the task responsible for the client.
+            // If something when wrong, go ahead and call everything up.
+            Some(client) => {
+                if client.0.send(packet).await.is_err() {
+                    // Release lock
+                    drop(client);
+                    final_clean_up(clients_map.clone(), raw_addr).await;
                 }
-                None => {
-                    let (packet_sender, packet_receiver): (
-                        Sender<Vec<u8>>,
-                        Receiver<Vec<u8>>,
-                    ) = mpsc::channel(4069);
-                    let _ = packet_sender.send(packet).await;
-                    {
-                        clients_map.insert(raw_addr, packet_sender);
-                    }
+            }
 
-                    let client_port_log = format!(
-                        "{}-> {} :: ",
-                        remote_addr_log,
-                        u16::from_be_bytes(raw_addr[16..18].try_into().unwrap())
-                    );
+            // Second scenario: No socket associated with the client, create a new one.
+            None => {
+                let (packet_sender, packet_receiver): (
+                    Sender<Vec<u8>>,
+                    Receiver<Vec<u8>>,
+                ) = mpsc::channel(CHANNEL_SIZE);
+                // Create a token to call reader to cancel reading when client disconnects.
+                let shutdown_token = CancellationToken::new();
 
-                    tokio::spawn(
-                        make_new_socket(
-                            client_port_log,
-                            source_socket.clone(),
-                            packet_receiver,
-                            endpoint_writer.clone(),
-                            raw_addr,
-                            clients_map.clone()
-                        )
-                    );
-                }
+                // Send a message buffer in queue to let the task read later.
+                let _ = packet_sender.send(packet).await;
+
+                clients_map.insert(raw_addr, (packet_sender, shutdown_token.clone()));
+
+                let client_port_log = format!(
+                    "{}-> {} :: ",
+                    remote_addr_log,
+                    u16::from_be_bytes(raw_addr[PORT_START..ADDR_KEY_SIZE].try_into().unwrap())
+                );
+
+                tokio::spawn(
+                    make_new_socket(
+                        client_port_log,
+                        source_socket.clone(),
+                        packet_receiver,
+                        endpoint_writer.clone(),
+                        raw_addr,
+                        clients_map.clone(),
+                        shutdown_token
+                    )
+                );
             }
         }
     }
@@ -88,8 +109,9 @@ async fn make_new_socket(
     source_socket: SocketAddr,
     mut packet_receiver: Receiver<Vec<u8>>,
     endpoint_writer: Arc<Mutex<SendStream>>,
-    raw_addr: [u8; 18],
-    clients_map: Arc<DashMap<[u8; 18], Sender<Vec<u8>>>>
+    raw_addr: [u8; ADDR_KEY_SIZE],
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>>,
+    shutdown_token: CancellationToken
 ) {
     let bridge_addr: SocketAddr = match source_socket.is_ipv4() {
         true => "127.0.0.1:0".parse().unwrap(),
@@ -130,7 +152,8 @@ async fn make_new_socket(
             raw_addr,
             reader,
             endpoint_writer.clone(),
-            clients_map.clone()
+            clients_map.clone(),
+            shutdown_token.clone()
         ),
         client_cast(client_port_log, raw_addr, writer, packet_receiver, clients_map)
     );
@@ -139,64 +162,81 @@ async fn make_new_socket(
 /// Cast server packets over proxy to client.
 async fn server_cast(
     client_port_log: String,
-    raw_addr: [u8; 18],
+    raw_addr: [u8; ADDR_KEY_SIZE],
     mut reader: ReadHalf<TcpStream>,
     endpoint_writer: Arc<Mutex<SendStream>>,
-    clients_map: Arc<DashMap<[u8; 18], Sender<Vec<u8>>>>
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>>,
+    shutdown_token: CancellationToken
 ) {
-    let mut packet = [0_u8; 4096];
+    let mut packet = [0_u8; BUFFER_SIZE];
     let mut composer = raw_addr.to_vec();
 
     loop {
-        // Read from client.
+        // Read from server.
         // When length is 0, meaning the client is disconnected, don't break the loop just yet.
-        // We'll send a final message, passing over a 0 length packet.
-        let length = match reader.read(&mut packet).await {
-            Ok(length) => { length }
-            Err(message) => {
-                println!("{}{}", client_port_log.bold().red(), message);
+        // We'll send a disconnect signal when the length is 0.
+        let packet_length;
+        tokio::select! {
+            // We want to poll for the shutdown_token first to avoid too much unnecessary read results when client is already gone.
+            biased;
+
+            _ = shutdown_token.cancelled() => {
                 break;
             }
-        };
 
-        {
-            composer.resize(length + 20, 0);
-            composer[18..20].copy_from_slice(&(length as u16).to_be_bytes());
-            composer[20..length + 20].copy_from_slice(&packet[..length]);
-            if
-                let Err(message) = endpoint_writer
-                    .lock().await
-                    .write_all(&composer[0..length + 20]).await
-            {
-                println!("{}{}", client_port_log.bold().red(), message);
-                break;
+            length = reader.read(&mut packet) => {
+                match length {
+                    Ok(length) => packet_length = length,
+                    Err(message) => {
+                        println!("{}{}", client_port_log.bold().red(), message);
+                        break;
+                    }
+                }
             }
         }
 
-        // After sending an empty message to notify the client that the head is gone, break this loop.
-        if length == 0 {
+        // Pass off to create a message that can be send over Filum.
+        compose::create_message(&mut composer, &packet, packet_length, raw_addr, if
+            packet_length > 0
+        {
+            Signal::Alive
+        } else {
+            Signal::Dead
+        });
+
+        if
+            let Err(message) = endpoint_writer
+                .lock().await
+                .write_all(&composer[..packet_length + METADATA_SIZE]).await
+        {
+            println!("{}{}", client_port_log.bold().red(), message);
+            break;
+        }
+
+        // After sending a disconnection message to notify the client that the head is gone, break this loop.
+        if packet_length == 0 {
             println!("{}Disconnected.", client_port_log.bold().yellow());
             break;
         }
     }
 
-    clients_map.remove(&raw_addr);
+    // Finally, clear everything.
+    final_clean_up(clients_map, raw_addr).await;
 }
 
 /// Cast client packets over proxy to server.
 async fn client_cast(
     client_addr_log: String,
-    raw_addr: [u8; 18],
+    raw_addr: [u8; ADDR_KEY_SIZE],
     mut writer: WriteHalf<TcpStream>,
     mut packet_receiver: Receiver<Vec<u8>>,
-    clients_map: Arc<DashMap<[u8; 18], Sender<Vec<u8>>>>
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>>
 ) {
     loop {
         let packet = match packet_receiver.recv().await {
             Some(packet) => packet,
             None => {
-                packet_receiver.close();
-                return;
+                break;
             }
         };
 
@@ -211,6 +251,20 @@ async fn client_cast(
     }
 
     // Finally, clear everything.
+    // I guess.
+    packet_receiver.close();
     let _ = writer.shutdown().await;
-    clients_map.remove(&raw_addr);
+    final_clean_up(clients_map, raw_addr).await;
+}
+
+async fn final_clean_up(
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>>,
+    raw_addr: [u8; ADDR_KEY_SIZE]
+) {
+    if let Some(client) = clients_map.get(&raw_addr) {
+        // Telling reader to go fuck itself.
+        client.1.cancel();
+        drop(client);
+        clients_map.remove(&raw_addr);
+    }
 }

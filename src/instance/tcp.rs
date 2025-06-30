@@ -10,6 +10,9 @@ use tokio::{
     sync::Mutex,
 };
 
+use crate::utils::compose::{ self, Signal };
+use crate::utils::constants::{ ADDR_KEY_SIZE, BUFFER_SIZE, METADATA_SIZE, PORT_START };
+
 /// Connect client to server over a ghost socket.
 pub async fn connection_bridge(
     output_socket: SocketAddr,
@@ -39,7 +42,9 @@ pub async fn connection_bridge(
     // Structure:
     // Key: [0..16] ip address | [16..18] port
     // Value: WriteHalf of the corresponding socket
-    let writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>> = Arc::new(DashMap::new());
+    let writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>> = Arc::new(
+        DashMap::new()
+    );
 
     let hosting_writer = Arc::new(Mutex::new(endpoint.2.0));
 
@@ -61,17 +66,17 @@ pub async fn connection_bridge(
 
         let mut raw_addr = match socket.1.ip() {
             IpAddr::V4(ipv4) => {
-                let mut fitter = [0_u8; 18];
+                let mut fitter = [0_u8; ADDR_KEY_SIZE];
                 fitter[..4].copy_from_slice(&ipv4.to_bits().to_be_bytes());
                 fitter
             }
             IpAddr::V6(ipv6) => {
-                let mut fitter = [0_u8; 18];
-                fitter[..16].copy_from_slice(&ipv6.to_bits().to_be_bytes());
+                let mut fitter = [0_u8; ADDR_KEY_SIZE];
+                fitter[..PORT_START].copy_from_slice(&ipv6.to_bits().to_be_bytes());
                 fitter
             }
         };
-        raw_addr[16..18].copy_from_slice(&socket.1.port().to_be_bytes());
+        raw_addr[PORT_START..ADDR_KEY_SIZE].copy_from_slice(&socket.1.port().to_be_bytes());
 
         {
             writers_map.insert(raw_addr.clone(), writer);
@@ -89,19 +94,29 @@ async fn server_cast(
     addr_log: String,
     mut hosting_reader: RecvStream,
     hosting_writer: Arc<Mutex<SendStream>>,
-    writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>
+    writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>>
 ) {
     loop {
         // Read the metadata from server.
-        let mut metadata = [0_u8; 20];
-        if let Err(message) = hosting_reader.read_exact(&mut metadata).await {
-            println!("{}{}", addr_log, message);
+        let (raw_addr, packet_length, signal) = match
+            compose::read_and_parse_metadata(&mut hosting_reader).await
+        {
+            Ok(metadata) => metadata,
+            Err(message) => {
+                println!("{}{}", addr_log, message);
+                continue;
+            }
+        };
+
+        // Check if the client is asking for disconnection.
+        if signal == Signal::Dead {
+            if let Some(mut writer) = writers_map.get_mut(&raw_addr) {
+                let _ = writer.shutdown().await;
+                drop(writer);
+                writers_map.remove(&raw_addr);
+            }
             continue;
         }
-
-        // Parse the metadata
-        let raw_addr: [u8; 18] = metadata[0..18].try_into().unwrap();
-        let packet_length = u16::from_be_bytes(metadata[18..20].try_into().unwrap()) as usize;
 
         // Read the actual packets from server if nothing goes wrong.
         // We'll handle when `packet_length` is 0, after sending nothing over to client.
@@ -117,12 +132,15 @@ async fn server_cast(
                 Some(writer) => writer,
                 None => {
                     println!(
-                        "{} Server sent to an address that was not known by filum, asking server to close it...",
+                        "{} Packet sent to a unknown client, telling host to shut it down.",
                         ">".red()
                     );
                     {
-                        metadata[18..20].copy_from_slice(&[0, 0]);
-                        let _ = hosting_writer.lock().await.write_all(&metadata[0..20]).await;
+                        let mut composer = vec![0_u8; 21];
+                        compose::create_message(&mut composer, &[], 0, raw_addr, Signal::Dead);
+                        let _ = hosting_writer
+                            .lock().await
+                            .write_all(&composer[..METADATA_SIZE]).await;
                     }
                     continue;
                 }
@@ -156,13 +174,13 @@ async fn server_cast(
 /// Cast client packets back to server.
 async fn client_cast(
     client_log: String,
-    raw_addr: [u8; 18],
+    raw_addr: [u8; ADDR_KEY_SIZE],
     mut reader: ReadHalf<TcpStream>,
-    writers_map: Arc<DashMap<[u8; 18], WriteHalf<TcpStream>>>,
+    writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>>,
     hosting_writer: Arc<Mutex<SendStream>>
 ) {
-    let mut packet = [0_u8; 4096];
-    let mut composer = raw_addr.to_vec();
+    let mut packet = [0_u8; BUFFER_SIZE];
+    let mut composer = Vec::from(&raw_addr[..]);
 
     loop {
         // Read from client.
@@ -176,13 +194,16 @@ async fn client_cast(
             }
         };
 
-        // Compose and send over to host.
-        composer.resize(length + 20, 0);
-        composer[18..20].copy_from_slice(&(length as u16).to_be_bytes());
-        composer[20..length + 20].copy_from_slice(&packet[..length]);
+        // Pass off to create a message that can be send over Filum.
+        compose::create_message(&mut composer, &packet, length, raw_addr, if length > 0 {
+            Signal::Alive
+        } else {
+            Signal::Dead
+        });
+
         {
             let mut writer = hosting_writer.lock().await;
-            if let Err(message) = writer.write_all(&composer[0..length + 20]).await {
+            if let Err(message) = writer.write_all(&composer[..length + METADATA_SIZE]).await {
                 println!("{}{}", client_log, message);
                 break;
             }
@@ -197,6 +218,10 @@ async fn client_cast(
 
     // Always remove the writer when out of the loop.
     {
-        writers_map.remove(&raw_addr);
+        if let Some(mut writer) = writers_map.get_mut(&raw_addr) {
+            let _ = writer.shutdown().await;
+            drop(writer);
+            writers_map.remove(&raw_addr);
+        }
     }
 }
