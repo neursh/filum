@@ -41,12 +41,6 @@ jobs:
             os: windows-latest
             name: windows-x86_64
             ext: .exe
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: macos-x86_64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            name: macos-aarch64
 
     runs-on: ${{ matrix.os }}
 
@@ -142,14 +136,6 @@ jobs:
             echo "" >> release_notes.md
             echo "- Initial release" >> release_notes.md
           fi
-
-          echo "" >> release_notes.md
-          echo "## Assets" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "This release includes binaries for:" >> release_notes.md
-          echo "- Linux (x86_64)" >> release_notes.md
-          echo "- Windows (x86_64)" >> release_notes.md
-          echo "- macOS (x86_64 and ARM64)" >> release_notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
