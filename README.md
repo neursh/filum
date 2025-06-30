@@ -24,14 +24,16 @@ This program is best suited for testing or hosting a game server without the has
 
 Your packets will go through 3 gates: `Local client ⇾ Filum ⇾ Local server`
 
-Because of the overhead, there will be some delay, I've tested a release build of Filum with a heavily modded Minecraft Fabric server on a local machine.
+Because of this overhead (doubling the amount of data), it will be ~x2 slower, but that's still better than alternatives like VPN or tunneling through third-party server.
+
+I've tested a release build of Filum with a heavily modded Minecraft Fabric server on a local machine.
 
 Tested on i5-7500 3.40GHz:
 
 |                     | Native port | Filum port   |
 | ------------------- | ----------- | ------------ |
 | **Latency impact:** |
-| Send packets:       | ~1ms        | ~1ms (~x1.1) |
+| Send packets:       | ~1ms        | ~2ms (~x2)   |
 | **CPU usage:**      |
 | Client:             | 0%          | ~5.5%        |
 | Server:             | 0%          | ~4.5%        |
@@ -40,7 +42,7 @@ Download a 85MB file over HTTP. Left is Filum, right is native.
 
 ![image](https://github.com/user-attachments/assets/b83bd256-d9e7-425f-b709-9e34a3040bac)
 
-On first connection to host, instance will have to negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
+On first connection to host, instance will have to perform NAT punching and negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
 
 ## Usage
 
