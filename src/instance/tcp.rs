@@ -9,6 +9,7 @@ use tokio::{
     net::{ TcpSocket, TcpStream },
     sync::Mutex,
 };
+use tokio_util::sync::CancellationToken;
 
 use crate::utils::compose::{ self, Signal };
 use crate::utils::constants::{ ADDR_KEY_SIZE, BUFFER_SIZE, METADATA_SIZE, PORT_START };
@@ -42,15 +43,15 @@ pub async fn connection_bridge(
     // Structure:
     // Key: [0..16] ip address | [16..18] port
     // Value: WriteHalf of the corresponding socket
-    let writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>> = Arc::new(
-        DashMap::new()
-    );
+    let clients_map: Arc<
+        DashMap<[u8; ADDR_KEY_SIZE], (WriteHalf<TcpStream>, CancellationToken)>
+    > = Arc::new(DashMap::new());
 
     let hosting_writer = Arc::new(Mutex::new(endpoint.2.0));
 
     // Run a server_cast task to handle every sockets that are connected to the host.
     tokio::spawn(
-        server_cast(addr_log.clone(), endpoint.2.1, hosting_writer.clone(), writers_map.clone())
+        server_cast(addr_log.clone(), endpoint.2.1, hosting_writer.clone(), clients_map.clone())
     );
 
     loop {
@@ -78,13 +79,20 @@ pub async fn connection_bridge(
         };
         raw_addr[PORT_START..ADDR_KEY_SIZE].copy_from_slice(&socket.1.port().to_be_bytes());
 
-        {
-            writers_map.insert(raw_addr.clone(), writer);
-        }
+        let shutdown_token = CancellationToken::new();
+
+        clients_map.insert(raw_addr.clone(), (writer, shutdown_token.clone()));
 
         let client_log = format!("{} :: ", socket.1);
         tokio::spawn(
-            client_cast(client_log, raw_addr, reader, writers_map.clone(), hosting_writer.clone())
+            client_cast(
+                client_log,
+                raw_addr,
+                reader,
+                clients_map.clone(),
+                hosting_writer.clone(),
+                shutdown_token
+            )
         );
     }
 }
@@ -94,7 +102,7 @@ async fn server_cast(
     addr_log: String,
     mut hosting_reader: RecvStream,
     hosting_writer: Arc<Mutex<SendStream>>,
-    writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>>
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (WriteHalf<TcpStream>, CancellationToken)>>
 ) {
     loop {
         // Read the metadata from server.
@@ -104,17 +112,14 @@ async fn server_cast(
             Ok(metadata) => metadata,
             Err(message) => {
                 println!("{}{}", addr_log, message);
-                continue;
+                // We'll break and remove the Endpoint.
+                break;
             }
         };
 
         // Check if the client is asking for disconnection.
         if signal == Signal::Dead {
-            if let Some(mut writer) = writers_map.get_mut(&raw_addr) {
-                let _ = writer.shutdown().await;
-                drop(writer);
-                writers_map.remove(&raw_addr);
-            }
+            client_clean_up(clients_map.clone(), raw_addr).await;
             continue;
         }
 
@@ -128,7 +133,7 @@ async fn server_cast(
 
         // Write the packets over to the actual socket on client.
         {
-            let mut writer = match writers_map.get_mut(&raw_addr) {
+            let mut writer = match clients_map.get_mut(&raw_addr) {
                 Some(writer) => writer,
                 None => {
                     println!(
@@ -146,28 +151,26 @@ async fn server_cast(
                 }
             };
 
-            if let Err(message) = writer.write_all(&packet).await {
+            if let Err(message) = writer.0.write_all(&packet).await {
                 println!("{}{}", addr_log, message);
-                // Yej, just drop the writer lock and remove the whole thang.
-                drop(writer);
-                {
-                    writers_map.remove(&raw_addr);
-                }
+                client_clean_up(clients_map.clone(), raw_addr).await;
                 continue;
             }
 
             // Remove everything, we bail.
             if packet_length == 0 {
                 println!("{}{}", addr_log, "Disconnected.");
-                // Remove the address when there's nothing sent over (disconnected).
-                let _ = writer.shutdown().await;
-                drop(writer);
-                {
-                    writers_map.remove(&raw_addr);
-                }
+                client_clean_up(clients_map.clone(), raw_addr).await;
                 continue;
             }
         }
+    }
+    println!("{}{}", addr_log.red(), "Server disconnected.".red());
+
+    // Clean up the bridge when instance `Endpoint` left.
+    for mut client in clients_map.iter_mut() {
+        let _ = client.0.shutdown().await;
+        client.1.cancel();
     }
 }
 
@@ -176,8 +179,9 @@ async fn client_cast(
     client_log: String,
     raw_addr: [u8; ADDR_KEY_SIZE],
     mut reader: ReadHalf<TcpStream>,
-    writers_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], WriteHalf<TcpStream>>>,
-    hosting_writer: Arc<Mutex<SendStream>>
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (WriteHalf<TcpStream>, CancellationToken)>>,
+    hosting_writer: Arc<Mutex<SendStream>>,
+    shutdown_token: CancellationToken
 ) {
     let mut packet = [0_u8; BUFFER_SIZE];
     let mut composer = Vec::from(&raw_addr[..]);
@@ -186,16 +190,29 @@ async fn client_cast(
         // Read from client.
         // When length is 0, meaning the client is disconnected, don't break the loop just yet.
         // We'll send a final message, passing over a 0 length packet.
-        let length = match reader.read(&mut packet).await {
-            Ok(length) => { length }
-            Err(message) => {
-                println!("{}{}", client_log, message);
+        let packet_length: usize;
+        tokio::select! {
+            biased;
+
+            _ = shutdown_token.cancelled() => {
                 break;
             }
-        };
+
+            length = reader.read(&mut packet) => {
+                match length {
+                    Ok(length) => packet_length = length,
+                    Err(message) => {
+                        println!("{}{}", client_log, message);
+                        break;
+                    }
+                }
+            }
+        }
 
         // Pass off to create a message that can be send over Filum.
-        compose::create_message(&mut composer, &packet, length, raw_addr, if length > 0 {
+        compose::create_message(&mut composer, &packet, packet_length, raw_addr, if
+            packet_length > 0
+        {
             Signal::Alive
         } else {
             Signal::Dead
@@ -203,25 +220,36 @@ async fn client_cast(
 
         {
             let mut writer = hosting_writer.lock().await;
-            if let Err(message) = writer.write_all(&composer[..length + METADATA_SIZE]).await {
+            if
+                let Err(message) = writer.write_all(
+                    &composer[..packet_length + METADATA_SIZE]
+                ).await
+            {
                 println!("{}{}", client_log, message);
                 break;
             }
         }
 
         // After sending an empty message to notify the server that client is gone, break this loop.
-        if length == 0 {
+        if packet_length == 0 {
             println!("{}{}", client_log, "Disconnected.");
             break;
         }
     }
 
     // Always remove the writer when out of the loop.
-    {
-        if let Some(mut writer) = writers_map.get_mut(&raw_addr) {
-            let _ = writer.shutdown().await;
-            drop(writer);
-            writers_map.remove(&raw_addr);
-        }
+    client_clean_up(clients_map, raw_addr).await;
+}
+
+async fn client_clean_up(
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (WriteHalf<TcpStream>, CancellationToken)>>,
+    raw_addr: [u8; ADDR_KEY_SIZE]
+) {
+    if let Some(mut client) = clients_map.get_mut(&raw_addr) {
+        let _ = client.0.shutdown().await;
+        // Telling reader to go fuck itself.
+        client.1.cancel();
+        drop(client);
+        clients_map.remove(&raw_addr);
     }
 }

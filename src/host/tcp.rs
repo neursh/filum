@@ -46,7 +46,7 @@ pub async fn connection_bridge(
 
         // Check if the client is asking for disconnection.
         if signal == Signal::Dead {
-            final_clean_up(clients_map.clone(), raw_addr).await;
+            client_clean_up(clients_map.clone(), raw_addr).await;
             continue;
         }
 
@@ -55,7 +55,7 @@ pub async fn connection_bridge(
         if let Err(message) = instance_stream.1.read_exact(&mut packet).await {
             println!("{}{}", format!("{}-> Filum :: ", remote_addr_log).red(), message);
             // We'll break and remove the Endpoint.
-            final_clean_up(clients_map.clone(), raw_addr).await;
+            client_clean_up(clients_map.clone(), raw_addr).await;
             break;
         }
 
@@ -68,7 +68,7 @@ pub async fn connection_bridge(
                 if client.0.send(packet).await.is_err() {
                     // Release lock
                     drop(client);
-                    final_clean_up(clients_map.clone(), raw_addr).await;
+                    client_clean_up(clients_map.clone(), raw_addr).await;
                 }
             }
 
@@ -232,7 +232,7 @@ async fn server_cast(
     }
 
     // Finally, clear everything.
-    final_clean_up(clients_map, raw_addr).await;
+    client_clean_up(clients_map, raw_addr).await;
 }
 
 /// Cast client packets over proxy to server.
@@ -277,10 +277,10 @@ async fn client_cast(
     // I guess.
     packet_receiver.close();
     let _ = writer.shutdown().await;
-    final_clean_up(clients_map, raw_addr).await;
+    client_clean_up(clients_map, raw_addr).await;
 }
 
-async fn final_clean_up(
+async fn client_clean_up(
     clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (Sender<Vec<u8>>, CancellationToken)>>,
     raw_addr: [u8; ADDR_KEY_SIZE]
 ) {

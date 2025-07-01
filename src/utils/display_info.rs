@@ -5,10 +5,10 @@ pub fn print(endpoint: &Endpoint, nodeid: PublicKey, addr_log: &String) {
     if let Some(info) = endpoint.remote_info(nodeid) {
         let (addr_log_colored, connection_message_colored) = match info.conn_type {
             ConnectionType::Direct(_) => (addr_log.green(), "You are directly connected.".green()),
-            ConnectionType::Relay(relay_url) =>
+            ConnectionType::Relay(_) =>
                 (
                     addr_log.yellow(),
-                    format!("Your connection is relayed over {}", relay_url).yellow(),
+                    format!("Your connection is relayed! Expect high latency.").yellow(),
                 ),
             // We just call it direct :)
             ConnectionType::Mixed(_, _) =>
