@@ -5,7 +5,7 @@ Binds locally hosted TCP/UDP server to peer-to-peer.
 > [!WARNING]  
 > This program is under heavy development. Expect things to break and different behaviour between versions.
 >
-> Known good versions: `v0.2.5a`, `v0.2.2a`, `v0.2.1a`
+> Known good versions: `v0.2.7a`, `v0.2.6a`, `v0.2.5a`, `v0.2.2a`, `v0.2.1a`
 
 ## What is this?
 
