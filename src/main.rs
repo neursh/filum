@@ -4,6 +4,7 @@ mod instance;
 mod utils;
 
 use clap::{ Parser, Subcommand };
+use colored::Colorize;
 
 use crate::structs::Protocol;
 
@@ -62,7 +63,67 @@ enum ClientProtocolOptions {
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(_) => {
+            println!("{}", "No arguments provided. Asking manually...".yellow());
+            println!("{}", "Let's get you started.".green());
+
+            let role = inquire::Select
+                ::new(
+                    "What role do you want Filum to run on?",
+                    vec!["Host".to_owned(), "Instance".to_owned()]
+                )
+                .prompt()
+                .unwrap();
+
+            let protocol = inquire::Select
+                ::new("What protocol?", vec!["TCP".to_owned(), "UDP".to_owned()])
+                .prompt()
+                .unwrap();
+
+            let attached_addr = inquire::Text
+                ::new("What local address do you want Filum to attach to?")
+                .prompt()
+                .unwrap();
+
+            match role.as_str() {
+                "Host" => {
+                    Args {
+                        command: Commands::Host {
+                            protocol: match protocol.as_str() {
+                                "TCP" => HostProtocolOptions::Tcp { source: attached_addr },
+                                "UDP" => HostProtocolOptions::Udp { source: attached_addr },
+                                _ => {
+                                    return;
+                                }
+                            },
+                        },
+                    }
+                }
+                "Instance" => {
+                    let node = inquire::Text
+                        ::new("ID of the node you want to connect to:")
+                        .prompt()
+                        .unwrap();
+                    Args {
+                        command: Commands::Instance {
+                            protocol: match protocol.as_str() {
+                                "TCP" => ClientProtocolOptions::Tcp { output: attached_addr, node },
+                                "UDP" => ClientProtocolOptions::Udp { output: attached_addr, node },
+                                _ => {
+                                    return;
+                                }
+                            },
+                        },
+                    }
+                }
+                _ => {
+                    return;
+                }
+            }
+        }
+    };
 
     match args.command {
         Commands::Host { protocol: HostProtocolOptions::Tcp { source } } =>
@@ -75,4 +136,7 @@ async fn main() {
         Commands::Instance { protocol: ClientProtocolOptions::Udp { node, output } } =>
             instance::connect::establish(node, output, Protocol::Udp).await,
     }
+
+    println!("\n{}", "Press Enter to exit the program...".bold());
+    let _ = std::io::stdin().read_line(&mut String::new()).unwrap();
 }
