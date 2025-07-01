@@ -3,7 +3,7 @@
 Binds locally hosted TCP/UDP server to peer-to-peer.
 
 > [!WARNING]  
-> This program is under heavy development. Expect things to break and different behaviour between versions.
+> This program is under heavy development and extremely experimental. Please expect things to break and different behaviour between versions.
 >
 > Known good versions: `v0.2.9a`, `v0.2.8a`
 
