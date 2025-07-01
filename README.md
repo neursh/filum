@@ -5,7 +5,7 @@ Binds locally hosted TCP/UDP server to peer-to-peer.
 > [!WARNING]  
 > This program is under heavy development. Expect things to break and different behaviour between versions.
 >
-> Known good versions: `v0.2.7a`, `v0.2.6a`, `v0.2.5a`, `v0.2.2a`, `v0.2.1a`
+> Known good versions: `v0.2.9a`, `v0.2.8a`
 
 ## What is this?
 
@@ -42,7 +42,7 @@ Download a 85MB file over HTTP. Left is Filum, right is native.
 
 ![image](https://github.com/user-attachments/assets/b83bd256-d9e7-425f-b709-9e34a3040bac)
 
-On first connection to host, instance will have to perform NAT punching and negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
+On first connection to host, instance will have to perform NAT hole punching and negotiate with the host for a bidirectional connection, which is why it will take a bit of time to set everything up, but once connected, it will have minimal to no latency, all depends on your physical location.
 
 ## Usage
 
