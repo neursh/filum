@@ -49,7 +49,7 @@ async fn accept_handler(endpoint: Endpoint, source_socket: &SocketAddr, protocol
         println!(
             "{}{}",
             remote_addr_log.yellow().bold(),
-            "New client connected. Waiting for bidirectional negotiation..."
+            "New instance connected. Waiting for bidirectional negotiation..."
         );
 
         if let Ok(remote_nodeid) = connection.remote_node_id() {
