@@ -1,6 +1,8 @@
+use std::net::{ IpAddr, SocketAddr };
+
 use iroh::endpoint::{ ReadExactError, RecvStream };
 
-use crate::utils::constants::{ ADDR_KEY_SIZE, METADATA_SIZE };
+use crate::utils::constants::{ ADDR_KEY_SIZE, METADATA_SIZE, PORT_START };
 
 #[derive(PartialEq)]
 pub enum Signal {
@@ -56,4 +58,22 @@ pub async fn read_and_parse_metadata(
     }
 
     Ok(parse_metadata(&metadata))
+}
+
+pub fn create_raw_addr(addr: SocketAddr) -> [u8; 18] {
+    let mut raw_addr = match addr.ip() {
+        IpAddr::V4(ipv4) => {
+            let mut fitter = [0_u8; ADDR_KEY_SIZE];
+            fitter[..4].copy_from_slice(&ipv4.to_bits().to_be_bytes());
+            fitter
+        }
+        IpAddr::V6(ipv6) => {
+            let mut fitter = [0_u8; ADDR_KEY_SIZE];
+            fitter[..PORT_START].copy_from_slice(&ipv6.to_bits().to_be_bytes());
+            fitter
+        }
+    };
+    raw_addr[PORT_START..ADDR_KEY_SIZE].copy_from_slice(&addr.port().to_be_bytes());
+
+    raw_addr
 }

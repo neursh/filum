@@ -134,12 +134,8 @@ async fn make_new_socket(
         false => TcpSocket::new_v6().unwrap(),
     };
 
-    if proxied_client.bind(bridge_addr).is_err() {
-        println!(
-            "{}{}",
-            client_port_log.bold().red(),
-            "Can't find a suitable port or IP to create a proxy layer over to client. Aborting..."
-        );
+    if let Err(message) = proxied_client.bind(bridge_addr) {
+        println!("{}{}", client_port_log.bold().red(), message);
         packet_receiver.close();
         return;
     }

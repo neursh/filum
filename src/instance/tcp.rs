@@ -1,9 +1,9 @@
 use std::{ net::SocketAddr, sync::Arc };
-use std::net::IpAddr;
 
 use colored::Colorize;
 use dashmap::DashMap;
 use iroh::{ endpoint::{ Connection, RecvStream, SendStream }, Endpoint };
+use tokio::net::TcpListener;
 use tokio::{
     io::{ AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf },
     net::{ TcpSocket, TcpStream },
@@ -11,8 +11,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::utils::compose::{ self, Signal };
-use crate::utils::constants::{ ADDR_KEY_SIZE, BUFFER_SIZE, METADATA_SIZE, PORT_START };
+use crate::utils::compose::{ self, create_raw_addr, Signal };
+use crate::utils::constants::{ ADDR_KEY_SIZE, BUFFER_SIZE, METADATA_SIZE };
 
 /// Connect client to server over a ghost socket.
 pub async fn connection_bridge(
@@ -50,10 +50,18 @@ pub async fn connection_bridge(
     let hosting_writer = Arc::new(Mutex::new(endpoint.2.0));
 
     // Run a server_cast task to handle every sockets that are connected to the host.
-    tokio::spawn(
-        server_cast(addr_log.clone(), endpoint.2.1, hosting_writer.clone(), clients_map.clone())
+    // Also gaslight new clients to fake being the real server.
+    tokio::join!(
+        server_cast(addr_log.clone(), endpoint.2.1, hosting_writer.clone(), clients_map.clone()),
+        redirect_clients(proxy_listener, clients_map, hosting_writer)
     );
+}
 
+async fn redirect_clients(
+    proxy_listener: TcpListener,
+    clients_map: Arc<DashMap<[u8; ADDR_KEY_SIZE], (WriteHalf<TcpStream>, CancellationToken)>>,
+    hosting_writer: Arc<Mutex<SendStream>>
+) {
     loop {
         let socket = match proxy_listener.accept().await {
             Ok((socket, addr)) => { (socket, addr) }
@@ -64,21 +72,7 @@ pub async fn connection_bridge(
         };
 
         let (reader, writer) = tokio::io::split(socket.0);
-
-        let mut raw_addr = match socket.1.ip() {
-            IpAddr::V4(ipv4) => {
-                let mut fitter = [0_u8; ADDR_KEY_SIZE];
-                fitter[..4].copy_from_slice(&ipv4.to_bits().to_be_bytes());
-                fitter
-            }
-            IpAddr::V6(ipv6) => {
-                let mut fitter = [0_u8; ADDR_KEY_SIZE];
-                fitter[..PORT_START].copy_from_slice(&ipv6.to_bits().to_be_bytes());
-                fitter
-            }
-        };
-        raw_addr[PORT_START..ADDR_KEY_SIZE].copy_from_slice(&socket.1.port().to_be_bytes());
-
+        let raw_addr = create_raw_addr(socket.1);
         let shutdown_token = CancellationToken::new();
 
         clients_map.insert(raw_addr.clone(), (writer, shutdown_token.clone()));
